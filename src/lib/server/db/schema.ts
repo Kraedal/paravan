@@ -164,6 +164,46 @@ export const ride = pgTable(
 	]
 );
 
+export const booking = pgTable(
+	'booking',
+	{
+		id: text('id').primaryKey(),
+		rideId: text('ride_id')
+			.notNull()
+			.references(() => ride.id, { onDelete: 'cascade' }),
+		passengerId: text('passenger_id')
+			.notNull()
+			.references(() => passenger.id, { onDelete: 'cascade' }),
+
+		status: text('status', {
+			enum: ['pending', 'onboard', 'completed', 'cancelled']
+		})
+			.default('pending')
+			.notNull(),
+
+		// Where they boarded (snapshot of passenger location at boarding time)
+		boardingLatitude: doublePrecision('boarding_latitude'),
+		boardingLongitude: doublePrecision('boarding_longitude'),
+
+		// Where they get off 
+		alightingLatitude: doublePrecision('alighting_latitude'),
+		alightingLongitude: doublePrecision('alighting_longitude'),
+
+		boardedAt: timestamp('boarded_at'),
+		alightedAt: timestamp('alighted_at'),
+
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(table) => [
+		index('booking_rideId_idx').on(table.rideId),
+		index('booking_passengerId_idx').on(table.passengerId)
+	]
+);
+
 export const session = pgTable(
 	'session',
 	{

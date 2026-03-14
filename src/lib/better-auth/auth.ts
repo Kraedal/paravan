@@ -24,10 +24,11 @@ export const auth = betterAuth({
 			}
 		}
 	},
-
+	// Configure the authentication providers you want to use
 	emailAndPassword: {
 		enabled: true
 	},
+
 	secret: process.env.BETTER_AUTH_SECRET!,
 	baseUrl: process.env.BETTER_AUTH_URL! || 'http://localhost:5173',
 	plugins: [sveltekitCookies(getRequestEvent)]

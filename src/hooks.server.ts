@@ -27,20 +27,29 @@ const sessionHandler: Handle = async ({ event, resolve }) => {
 
 	// Protect driver routes
 	if (path.startsWith('/driver') && event.locals.role !== 'driver') {
-		console.log(`[HOOKS] Access denied to driver route - redirecting to login`);
+		if (event.locals.role === 'passenger') throw redirect(303, '/passenger');
+		if (event.locals.role === 'admin') throw redirect(303, '/cooperative');
 		throw redirect(303, '/auth/login');
 	}
 
 	// Protect passenger routes
 	if (path.startsWith('/passenger') && event.locals.role !== 'passenger') {
-		console.log(`[HOOKS] Access denied to passenger route - redirecting to login`);
+		if (event.locals.role === 'driver') throw redirect(303, '/driver');
+		if (event.locals.role === 'admin') throw redirect(303, '/cooperative');
 		throw redirect(303, '/auth/login');
 	}
 
 	// Protect cooperative routes
 	if (path.startsWith('/cooperative') && event.locals.role !== 'admin') {
-		console.log(`[HOOKS] Access denied to cooperative route - redirecting to login`);
+		if (event.locals.role === 'driver') throw redirect(303, '/driver');
+		if (event.locals.role === 'passenger') throw redirect(303, '/passenger');
 		throw redirect(303, '/auth/login');
+	}
+
+	if (path.startsWith('/auth/login') && session) {
+		if (event.locals.role === 'driver') throw redirect(303, '/driver');
+		if (event.locals.role === 'passenger') throw redirect(303, '/passenger');
+		if (event.locals.role === 'admin') throw redirect(303, '/cooperative');
 	}
 
 	return resolve(event);

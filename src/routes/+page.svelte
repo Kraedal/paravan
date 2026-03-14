@@ -1,10 +1,7 @@
 <script>
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import logo from '$lib/assets/favicon.svg';
-
-	function goToLogin() {
-		goto('/auth/login');
-	}
 </script>
 
 <div class="flex min-h-screen flex-col bg-white text-gray-900">
@@ -60,7 +57,7 @@
 			</div>
 
 			<button
-				onclick={goToLogin}
+				onclick={() => goto(resolve('/auth/login'))}
 				class="
           inline-flex
           items-center

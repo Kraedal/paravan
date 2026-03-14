@@ -1,53 +1,66 @@
-<script>
-	import { login } from "$lib/api/auth.remote";
-
+<script lang="ts">
+	import { login } from '$lib/api/auth.remote';
+	import logo from '$lib/assets/favicon.svg';
+	import { resolve } from '$app/paths';
 </script>
 
+<div class="flex min-h-screen items-center justify-center bg-[#f7fcfe] px-4">
+	<div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 shadow">
+		<div class="mb-6 flex justify-center">
+			<div class="flex h-12 w-12 items-center justify-center rounded-xl">
+				<img src={logo} alt="Para logo" class="h-12 w-12" />
+			</div>
+		</div>
 
+		<h1 class="mb-1 text-center text-2xl font-semibold">Welcome back</h1>
+		<p class="mb-6 text-center text-sm text-gray-500">Sign in to your account</p>
 
-<div class="min-h-screen bg-gray-50 flex flex-col justify-center py-12 px-6 lg:px-8">
-  <div class="sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="flex justify-center mb-4">
-      <div class="h-12 w-12 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-sm">
-        P
-      </div>
-    </div>
-    <h2 class="text-center text-2xl font-bold tracking-tight text-gray-900">
-      Sign in to your account
-    </h2>
-  </div>
+		<form {...login} class="space-y-4">
+			<div>
+				<label class="mb-1 block text-sm font-medium"
+					>Email address
+					<input
+						{...login.fields.email.as('email')}
+						class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+					/>
+				</label>
+				{#each login.fields.email.issues() ?? [] as issue, index (index)}
+					<p class="text-sm text-red-600">{issue.message}</p>
+				{/each}
+			</div>
 
-  <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="bg-white py-8 px-6 shadow sm:rounded-xl sm:px-10 border border-gray-100">
-      
-      <form class="space-y-6" {...login}>
-        
-        <label>
-          Email
-          <input {...login.fields.email.as('email')} />
-          {#each login.fields.email.issues() ?? [] as issue}
-            <p class="issue">{issue.message}</p>
-          {/each}
-        </label>
+			<div>
+				<label class="mb-1 block text-sm font-medium"
+					>Password
+					<input
+						{...login.fields.password.as('password')}
+						class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+					/>
+				</label>
+				{#each login.fields.password.issues() ?? [] as issue, index (index)}
+					<p class="text-sm text-red-600">{issue.message}</p>
+				{/each}
+			</div>
 
-        <label>
-          Password
-          <input {...login.fields.password.as('password')} />
-          {#each login.fields.password.issues() ?? [] as issue}
-            <p class="issue">{issue.message}</p>
-          {/each}
-        </label>
+			{#if login.result?.error}
+				<p class="text-sm text-red-600">{login.result.error}</p>
+			{/if}
 
+			<button
+				type="submit"
+				disabled={login.pending > 0}
+				class="w-full rounded-xl bg-blue-600 py-3 font-medium text-white
+                 transition hover:bg-blue-700 disabled:opacity-60"
+			>
+				{login.pending > 0 ? 'Signing in…' : 'Sign in'}
+			</button>
+		</form>
 
-		<p>
+		<p class="mt-6 text-center text-sm text-gray-600">
 			Don't have an account?
-			<a href="/auth/signup">Sign up</a>
+			<a href={resolve('/auth/signup')} class="font-medium text-blue-600 hover:underline">
+				Sign up
+			</a>
 		</p>
-
-		<button type="submit" >Login</button>
-
-      </form>
-
-    </div>
-  </div>
+	</div>
 </div>
