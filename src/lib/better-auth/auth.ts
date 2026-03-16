@@ -26,7 +26,8 @@ export const auth = betterAuth({
 	},
 	// Configure the authentication providers you want to use
 	emailAndPassword: {
-		enabled: true
+		enabled: true,
+		autoSignIn: false
 	},
 
 	secret: process.env.BETTER_AUTH_SECRET!,

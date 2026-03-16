@@ -6,7 +6,8 @@ import {
 	boolean,
 	index,
 	doublePrecision,
-	integer
+	integer,
+	date
 } from 'drizzle-orm/pg-core';
 
 export const user = pgTable('user', {
@@ -56,6 +57,7 @@ export const driver = pgTable(
 		vehicleId: text('vehicle_id').references(() => vehicle.id, { onDelete: 'set null' }),
 		name: text('name').notNull(),
 		licenseNumber: text('license_number').notNull(),
+		licenseExpiry: date('license_expiry'),
 		latitude: doublePrecision('latitude'),
 		longitude: doublePrecision('longitude'),
 		lastLocationUpdate: timestamp('last_location_update'),
@@ -185,7 +187,7 @@ export const booking = pgTable(
 		boardingLatitude: doublePrecision('boarding_latitude'),
 		boardingLongitude: doublePrecision('boarding_longitude'),
 
-		// Where they get off 
+		// Where they get off
 		alightingLatitude: doublePrecision('alighting_latitude'),
 		alightingLongitude: doublePrecision('alighting_longitude'),
 

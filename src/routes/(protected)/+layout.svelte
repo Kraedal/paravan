@@ -10,7 +10,7 @@
 </script>
 
 <div class="z-1000 border-b border-gray-200 bg-white shadow-sm">
-	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+	<div class="px-4 sm:px-6 md:mx-auto">
 		<div class="flex h-16 items-center justify-between">
 			<h1 class="text-2xl font-bold text-gray-900">PARAVAN</h1>
 			<button
