@@ -1,5 +1,7 @@
 import z from 'zod';
 
+// Create, update, assign, delete drivers schemas
+
 export const createDriverSchema = z.object({
 	email: z.email(),
 	password: z.string().min(8, 'Password must be at least 8 characters long'),
@@ -29,6 +31,8 @@ export const unassignDriverVehicleSchema = z.object({
 	driverId: z.string()
 });
 
+// Create, update, delete vehicles schemas
+
 export const createVehicleSchema = z.object({
 	plateNumber: z.string().min(1, 'Plate number is required'),
 	model: z.string().min(1, 'Model is required'),
@@ -39,7 +43,10 @@ export const updateVehicleSchema = createVehicleSchema.partial().extend({
 	vehicleId: z.string()
 });
 
+// Create, update, delete routes schemas
+
 export const createRouteSchema = z.object({
+	name: z.string().min(1, 'Route name is required'),
 	originLongitude: z.number(),
 	originLatitude: z.number(),
 	destinationLongitude: z.number(),

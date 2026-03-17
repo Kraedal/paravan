@@ -1,7 +1,16 @@
 <script lang="ts">
-	import { page } from '$app/state';
+	import { getCooperativeDashboard } from '$lib/api/admin.remote';
 
-	let user = page.data.user;
+	const dashboard = getCooperativeDashboard();
 </script>
 
-<h1>Hello, {user.name}!</h1>
+{#if dashboard.loading && !dashboard.ready}
+	<p>Loading dashboard...</p>
+{:else if dashboard.error}
+	<p>Failed to load dashboard.</p>
+{:else if dashboard.ready}
+	<h1>Hello, {dashboard.current.user.name}!</h1>
+	<h1>
+		Welcome to the {dashboard.current.cooperative?.name ?? 'Cooperative'} Dashboard
+	</h1>
+{/if}

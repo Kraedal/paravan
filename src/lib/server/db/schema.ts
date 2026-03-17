@@ -120,6 +120,7 @@ export const route = pgTable(
 		cooperativeId: text('cooperative_id')
 			.notNull()
 			.references(() => cooperative.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
 		originLatitude: doublePrecision('origin_latitude').notNull(),
 		originLongitude: doublePrecision('origin_longitude').notNull(),
 		destinationLatitude: doublePrecision('destination_latitude').notNull(),

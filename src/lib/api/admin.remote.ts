@@ -1,17 +1,22 @@
 import { db } from '$lib/server/db';
-import { cooperative, driver, user, vehicle } from '$lib/server/db/schema';
+import { cooperative, driver, user, vehicle, route } from '$lib/server/db/schema';
 import { and, eq, ne } from 'drizzle-orm';
 import {
 	createDriverSchema,
 	updateDriverSchema,
 	createVehicleSchema,
+	updateVehicleSchema,
 	assignDriverSchema,
-	unassignDriverVehicleSchema
+	unassignDriverVehicleSchema,
+	createRouteSchema,
+	updateRouteSchema,
+
 } from '$lib/schema/admin';
 import { cooperativeSignUpSchema } from '$lib/schema/auth';
 import { form, getRequestEvent, query } from '$app/server';
 import { auth } from '$lib/better-auth/auth';
 import { generateId } from 'better-auth';
+
 
 function requireAdmin() {
 	const { locals } = getRequestEvent();
@@ -315,4 +320,134 @@ export const getVehicles = query(async () => {
 		}
 	});
 	return vehicles;
+});
+
+export const getCooperativeDashboard = query(async () => {
+	const admin = requireAdmin();
+
+	const cooperativeData = await db.query.cooperative.findFirst({
+		where: eq(cooperative.userId, admin.id)
+	});
+
+	return {
+		user: admin,
+		cooperative: cooperativeData
+	};
+});
+
+export const deleteVehicle = form(updateVehicleSchema, async (data) => {
+	try {
+		const admin = requireAdmin();
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		const targetVehicle = await db.query.vehicle.findFirst({
+			where: and(eq(vehicle.id, data.vehicleId), eq(vehicle.cooperativeId, cooperativeData.id))
+		});
+
+		if (!targetVehicle) {
+			throw new Error('Vehicle not found in your cooperative');
+		}
+
+		await db.delete(vehicle).where(eq(vehicle.id, data.vehicleId));
+
+		return { success: true };
+	} catch (error) {
+		console.error('Error deleting vehicle:', error);
+		let errorMessage = 'An error occurred while deleting the vehicle';
+		if (error instanceof Error) {
+			errorMessage = error.message;
+		}
+		return { success: false, error: errorMessage };
+	}
+});
+
+export const createRoute = form(createRouteSchema, async (data) => {
+	// Implementation for creating a route
+	try {
+		const admin = requireAdmin();
+
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		// Insert route into the database
+		await db.insert(route).values({
+			id: generateId(),
+			name: data.name,
+			cooperativeId: cooperativeData.id,
+			originLatitude: data.originLatitude,
+			originLongitude: data.originLongitude,
+			destinationLatitude: data.destinationLatitude,
+			destinationLongitude: data.destinationLongitude,
+			distance: data.distance // 👈 was missing
+		});
+
+		return { success: true };
+	} catch (error) {
+		console.error('Error creating route:', error);
+		let errorMessage = 'An error occurred while creating the route';
+		if (error instanceof Error) {
+			errorMessage = error.message;
+		}
+		return { success: false, error: errorMessage };
+	}	
+
+});
+
+export const getRoutes = query(async () => {
+	const user = requireAdmin();
+
+	const cooperativeData = await db.query.cooperative.findFirst({
+		where: eq(cooperative.userId, user.id)
+	});
+
+	if (!cooperativeData) throw new Error('Cooperative not found');
+
+	const routes = await db.query.route.findMany({
+		where: eq(route.cooperativeId, cooperativeData.id)
+	});
+	return routes;
+});	
+
+export const deleteRoute = form(updateRouteSchema, async (data) => {
+	// Implementation for deleting a route
+	try {
+		const admin = requireAdmin();
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		const targetRoute = await db.query.route.findFirst({
+			where: and(eq(route.id, data.routeId), eq(route.cooperativeId, cooperativeData.id))
+		});
+
+		if (!targetRoute) {
+			throw new Error('Route not found in your cooperative');
+		}
+
+		await db.delete(route).where(eq(route.id, data.routeId));
+
+		return { success: true };
+	} catch (error) {
+		console.error('Error deleting route:', error);
+		let errorMessage = 'An error occurred while deleting the route';
+		if (error instanceof Error) {
+			errorMessage = error.message;
+		}
+		return { success: false, error: errorMessage };
+	}
 });
