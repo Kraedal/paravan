@@ -1,10 +1,11 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
 	pgTable,
 	text,
 	timestamp,
 	boolean,
 	index,
+	uniqueIndex,
 	doublePrecision,
 	integer,
 	date
@@ -152,7 +153,7 @@ export const ride = pgTable(
 			.default('to_destination')
 			.notNull(),
 		// NEW: Track live occupancy so waiting users know if there is space
-		availableSeats: doublePrecision('available_seats').notNull(),
+		availableSeats: integer('available_seats').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -162,6 +163,9 @@ export const ride = pgTable(
 	},
 	(table) => [
 		index('ride_driverId_idx').on(table.driverId),
+		uniqueIndex('ride_one_ongoing_per_driver_idx')
+			.on(table.driverId)
+			.where(sql`${table.status} = 'ongoing'`),
 		index('ride_vehicleId_idx').on(table.vehicleId),
 		index('ride_routeId_idx').on(table.routeId)
 	]
@@ -323,7 +327,7 @@ export const driverRelations = relations(driver, ({ one, many }) => ({
 	rides: many(ride)
 }));
 
-export const passengerRelations = relations(passenger, ({ one }) => ({
+export const passengerRelations = relations(passenger, ({ one, many }) => ({
 	user: one(user, {
 		fields: [passenger.userId],
 		references: [user.id]
@@ -332,7 +336,8 @@ export const passengerRelations = relations(passenger, ({ one }) => ({
 		// Links the passenger to the line they are waiting for
 		fields: [passenger.targetRouteId],
 		references: [route.id]
-	})
+	}),
+	bookings: many(booking)
 }));
 
 export const vehicleRelations = relations(vehicle, ({ one, many }) => ({
@@ -354,7 +359,7 @@ export const routeRelations = relations(route, ({ one, many }) => ({
 	waitingPassengers: many(passenger) // Allows querying all passengers waiting on this specific route
 }));
 
-export const rideRelations = relations(ride, ({ one }) => ({
+export const rideRelations = relations(ride, ({ one, many }) => ({
 	driver: one(driver, {
 		fields: [ride.driverId],
 		references: [driver.id]
@@ -366,5 +371,17 @@ export const rideRelations = relations(ride, ({ one }) => ({
 	route: one(route, {
 		fields: [ride.routeId],
 		references: [route.id]
+	}),
+	bookings: many(booking)
+}));
+
+export const bookingRelations = relations(booking, ({ one }) => ({
+	ride: one(ride, {
+		fields: [booking.rideId],
+		references: [ride.id]
+	}),
+	passenger: one(passenger, {
+		fields: [booking.passengerId],
+		references: [passenger.id]
 	})
 }));
