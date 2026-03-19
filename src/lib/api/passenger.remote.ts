@@ -255,3 +255,24 @@ export const getBookingHistory = query(async () => {
 
   return history;
 });
+
+
+export const alightSelf = form(cancelBookingSchema, async (data) => {
+  const passengerProfile = await requirePassengerProfile();
+
+  const updated = await db
+    .update(booking)
+    .set({ status: 'completed', alightedAt: new Date(),
+      alightingLatitude: passengerProfile.latitude,
+      alightingLongitude: passengerProfile.longitude
+    })
+    .where(and(
+      eq(booking.id, data.bookingId),
+      eq(booking.passengerId, passengerProfile.id),
+      eq(booking.status, 'onboard') // only onboard passengers can alight
+    ))
+    .returning({ id: booking.id });
+
+  if (!updated.length) throw new Error('Booking not found or not onboard');
+  return { success: true };
+});
