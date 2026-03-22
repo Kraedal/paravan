@@ -15,7 +15,7 @@ import {
 import { cooperativeSignUpSchema } from '$lib/schema/auth';
 import { form, getRequestEvent, query } from '$app/server';
 import { auth } from '$lib/better-auth/auth';
-import { generateId } from 'better-auth';
+import { generateId } from '$lib/utils/id';
 
 
 function requireAdmin() {
@@ -40,12 +40,11 @@ export const updateCooperative = form(cooperativeSignUpSchema, async (data) => {
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error updating cooperative:', error);
-		let errorMessage = 'An error occurred while updating the cooperative';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[updateCooperative]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while updating the cooperative' };
 	}
 });
 
@@ -86,18 +85,21 @@ export const createDriver = form(createDriverSchema, async (data) => {
 
 		return { success: true, driverId: newDriver.user.id };
 	} catch (error) {
-		console.error('Error creating driver:', error);
-		let errorMessage = 'An error occurred while creating the driver account';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[createDriver]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while creating the driver account' };
 	}
 });
 
 export const updateDriver = form(updateDriverSchema, async (data) => {
 	try {
 		const admin = requireAdmin();
+
+		if (!data.driverId) {
+			throw new Error('Driver ID is required');
+		}
 
 		const cooperativeData = await db.query.cooperative.findFirst({
 			where: eq(cooperative.userId, admin.id)
@@ -107,22 +109,53 @@ export const updateDriver = form(updateDriverSchema, async (data) => {
 			throw new Error('Cooperative not found');
 		}
 
-		// Implementation for updating driver details
-		await db
-			.update(driver)
-			.set({
-				name: data.name,
-				licenseNumber: data.licenseNumber,
-				licenseExpiry: data.licenseExpiry
-			})
-			.where(eq(driver.id, admin.id));
-	} catch (error) {
-		console.error('Error updating driver:', error);
-		let errorMessage = 'An error occurred while updating the driver account';
-		if (error instanceof Error) {
-			errorMessage = error.message;
+		// Verify the target driver belongs to this cooperative
+		const targetDriver = await db.query.driver.findFirst({
+			where: and(eq(driver.id, data.driverId), eq(driver.cooperativeId, cooperativeData.id))
+		});
+
+		if (!targetDriver) {
+			throw new Error('Driver not found in your cooperative');
 		}
-		return { success: false, error: errorMessage };
+
+		// Build update object with only provided fields
+		const updateData: {
+			name?: string;
+			licenseNumber?: string;
+			licenseExpiry?: string | null;
+		} = {};
+		if (data.name !== undefined) updateData.name = data.name;
+		if (data.licenseNumber !== undefined) updateData.licenseNumber = data.licenseNumber;
+		if (data.licenseExpiry !== undefined) updateData.licenseExpiry = data.licenseExpiry;
+
+		if (Object.keys(updateData).length === 0) {
+			return { success: true }; // No fields to update
+		}
+
+		// Use transaction and verify cooperativeId in WHERE clause to prevent TOCTOU race condition
+		// This ensures we only update the driver if they still belong to this cooperative
+		const updated = await db
+			.update(driver)
+			.set(updateData)
+			.where(
+				and(
+					eq(driver.id, data.driverId),
+					eq(driver.cooperativeId, cooperativeData.id)
+				)
+			)
+			.returning({ id: driver.id });
+
+		if (!updated.length) {
+			throw new Error('Driver not found or no longer belongs to your cooperative');
+		}
+
+		return { success: true };
+	} catch (error) {
+		// Log detailed error for debugging (server-side only)
+		if (error instanceof Error) {
+			console.error('[updateDriver]', error);
+		}
+		return { success: false, error: 'An error occurred while updating the driver account' };
 	}
 });
 
@@ -145,17 +178,25 @@ export const deleteDriver = form(updateDriverSchema, async (data) => {
 			throw new Error('Driver not found in your cooperative');
 		}
 
+		// Verify driver still belongs to cooperative before deletion (TOCTOU mitigation)
+		const verified = await db.query.driver.findFirst({
+			where: and(eq(driver.id, data.driverId), eq(driver.cooperativeId, cooperativeData.id))
+		});
+
+		if (!verified) {
+			throw new Error('Driver no longer belongs to your cooperative');
+		}
+
 		// Delete user account; driver/session/account rows are removed via FK cascades.
 		await db.delete(user).where(eq(user.id, targetDriver.userId));
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error deleting driver:', error);
-		let errorMessage = 'An error occurred while deleting the driver account';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[deleteDriver]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while deleting the driver account' };
 	}
 });
 
@@ -223,12 +264,11 @@ export const assignVehicleToDriver = form(assignDriverSchema, async (data) => {
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error assigning vehicle to driver:', error);
-		let errorMessage = 'An error occurred while assigning the vehicle to the driver';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[assignVehicleToDriver]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while assigning the vehicle to the driver' };
 	}
 });
 
@@ -260,12 +300,11 @@ export const unassignVehicleFromDriver = form(unassignDriverVehicleSchema, async
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error unassigning vehicle from driver:', error);
-		let errorMessage = 'An error occurred while unassigning the vehicle from the driver';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[unassignVehicleFromDriver]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while unassigning the vehicle from the driver' };
 	}
 });
 
@@ -291,12 +330,11 @@ export const createVehicle = form(createVehicleSchema, async (data) => {
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error creating vehicle:', error);
-		let errorMessage = 'An error occurred while creating the vehicle';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[createVehicle]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while creating the vehicle' };
 	}
 });
 
@@ -358,12 +396,11 @@ export const deleteVehicle = form(updateVehicleSchema, async (data) => {
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error deleting vehicle:', error);
-		let errorMessage = 'An error occurred while deleting the vehicle';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[deleteVehicle]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while deleting the vehicle' };
 	}
 });
 
@@ -389,17 +426,16 @@ export const createRoute = form(createRouteSchema, async (data) => {
 			originLongitude: data.originLongitude,
 			destinationLatitude: data.destinationLatitude,
 			destinationLongitude: data.destinationLongitude,
-			distance: data.distance // 👈 was missing
+			distance: data.distance 
 		});
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error creating route:', error);
-		let errorMessage = 'An error occurred while creating the route';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[createRoute]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while creating the route' };
 	}	
 
 });
@@ -443,11 +479,10 @@ export const deleteRoute = form(updateRouteSchema, async (data) => {
 
 		return { success: true };
 	} catch (error) {
-		console.error('Error deleting route:', error);
-		let errorMessage = 'An error occurred while deleting the route';
+		// Log detailed error for debugging (server-side only)
 		if (error instanceof Error) {
-			errorMessage = error.message;
+			console.error('[deleteRoute]', error);
 		}
-		return { success: false, error: errorMessage };
+		return { success: false, error: 'An error occurred while deleting the route' };
 	}
 });

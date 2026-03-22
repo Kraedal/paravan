@@ -4,7 +4,7 @@ import { auth } from '$lib/better-auth/auth';
 import { passengerSignUpSchema, cooperativeSignUpSchema, loginSchema } from '$lib/schema/auth';
 import { db } from '$lib/server/db';
 import { cooperative, passenger } from '$lib/server/db/schema';
-import { generateId } from 'better-auth';
+import { generateId } from '$lib/utils/id';
 
 export const passengerSignUp = form(passengerSignUpSchema, async (data) => {
 	// Implementation for passenger sign-up
@@ -28,7 +28,6 @@ export const passengerSignUp = form(passengerSignUpSchema, async (data) => {
 			name: data.name
 		});
 
-		console.log('Passenger signed up successfully:', newPassenger);
 		throw redirect(303, '/auth/login');
 	} catch (error) {
 		// Let SvelteKit's redirect throw naturally
@@ -36,18 +35,12 @@ export const passengerSignUp = form(passengerSignUpSchema, async (data) => {
 			throw error;
 		}
 
-		console.error('Error during passenger sign-up:', error);
-
-		// Extract error message from APIError
-		let errorMessage = 'An error occurred during sign up';
-		if (error && typeof error === 'object' && 'body' in error) {
-			const apiError = error as { body?: { message?: string } };
-			errorMessage = apiError.body?.message || errorMessage;
-		} else if (error instanceof Error) {
-			errorMessage = error.message;
+		// Log detailed error for debugging (server-side only)
+		if (error instanceof Error) {
+			console.error('[passengerSignUp]', error);
 		}
 
-		return { error: errorMessage };
+		return { error: 'An error occurred during sign up' };
 	}
 });
 
@@ -83,21 +76,12 @@ export const cooperativeSignUp = form(cooperativeSignUpSchema, async (data) => {
 			throw error;
 		}
 
-		console.error(
-			'SERVER CRASH DETAILS:',
-			JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-		);
-
-		// Extract error message from APIError
-		let errorMessage = 'An error occurred during sign up';
-		if (error && typeof error === 'object' && 'body' in error) {
-			const apiError = error as { body?: { message?: string } };
-			errorMessage = apiError.body?.message || errorMessage;
-		} else if (error instanceof Error) {
-			errorMessage = error.message;
+		// Log detailed error for debugging (server-side only)
+		if (error instanceof Error) {
+			console.error('[cooperativeSignUp]', error);
 		}
 
-		return { error: errorMessage };
+		return { error: 'An error occurred during sign up' };
 	}
 });
 
@@ -129,18 +113,12 @@ export const login = form(loginSchema, async (data) => {
 			throw error;
 		}
 
-		console.error('Error during login:', error);
-
-		// Extract error message from APIError
-		let errorMessage = 'An error occurred during login';
-		if (error && typeof error === 'object' && 'body' in error) {
-			const apiError = error as { body?: { message?: string } };
-			errorMessage = apiError.body?.message || errorMessage;
-		} else if (error instanceof Error) {
-			errorMessage = error.message;
+		// Log detailed error for debugging (server-side only)
+		if (error instanceof Error) {
+			console.error('[login]', error);
 		}
 
-		return { error: errorMessage };
+		return { error: 'An error occurred during login' };
 	}
 });
 
