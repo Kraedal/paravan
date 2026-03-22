@@ -47,6 +47,23 @@
 	let L: typeof import('leaflet');
 	let lastEmittedRouteKey: string | null = $state(null);
 
+	/**
+	 * Escapes HTML special characters to prevent XSS attacks.
+	 * Converts user-controlled input into safe text for HTML display.
+	 * @param text - The string to escape
+	 * @returns The escaped string safe for HTML
+	 */
+	function escapeHtml(text: string): string {
+		const htmlEscapeMap: Record<string, string> = {
+			'&': '&amp;',
+			'<': '&lt;',
+			'>': '&gt;',
+			'"': '&quot;',
+			"'": '&#039;'
+		};
+		return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] ?? char);
+	}
+
 	onMount(() => {
 		void (async () => {
 			const leaflet = await import('leaflet');
@@ -122,8 +139,13 @@
 				iconAnchor: [16, 32]
 			})
 		})
-			.addTo(map)
-			.bindPopup(`<b>${isOrigin ? 'Origin' : 'Destination'}:</b> ${label}`);
+			.addTo(map);
+
+		// Safely create popup with escaped user-controlled label to prevent XSS
+		// The label comes from external API (Nominatim) and must be escaped before HTML insertion
+		const escapedLabel = escapeHtml(label);
+		const locationLabel = isOrigin ? 'Origin' : 'Destination';
+		marker.bindPopup(`<b>${locationLabel}:</b> ${escapedLabel}`);
 
 		if (isOrigin) {
 			originMarker = marker;
