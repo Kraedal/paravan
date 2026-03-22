@@ -2,8 +2,16 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { getRequestEvent } from '$app/server';
+import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db'; // your drizzle instance
 import * as schema from '$lib/server/db/schema'; // your drizzle schema
+
+const betterAuthSecret = env.BETTER_AUTH_SECRET?.trim();
+if (!betterAuthSecret || betterAuthSecret === 'your-secret-key') {
+	throw new Error('BETTER_AUTH_SECRET is not set. Configure it in your environment variables.');
+}
+
+const betterAuthBaseURL = env.BETTER_AUTH_URL?.trim() || 'http://localhost:5173';
 
 export const auth = betterAuth({
 	database: drizzleAdapter(db, {
@@ -30,7 +38,7 @@ export const auth = betterAuth({
 		autoSignIn: false
 	},
 
-	secret: process.env.BETTER_AUTH_SECRET!,
-	baseUrl: process.env.BETTER_AUTH_URL! || 'http://localhost:5173',
+	secret: betterAuthSecret,
+	baseURL: betterAuthBaseURL,
 	plugins: [sveltekitCookies(getRequestEvent)]
 });

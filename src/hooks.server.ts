@@ -10,8 +10,6 @@ const authHandler: Handle = async ({ event, resolve }) => {
 };
 
 const sessionHandler: Handle = async ({ event, resolve }) => {
-	console.log(`[HOOKS] Processing request for path: ${event.url.pathname}`);
-
 	const session = await auth.api.getSession({
 		headers: event.request.headers
 	});
