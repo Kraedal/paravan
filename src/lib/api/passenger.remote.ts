@@ -2,8 +2,8 @@ import { form, getRequestEvent, query } from '$app/server';
 import { and, eq, sql } from 'drizzle-orm';
 import { setReadySchema, requestBookingSchema, cancelBookingSchema } from '$lib/schema/passenger';
 import { db } from '$lib/server/db';
-import { passenger, booking } from '$lib/server/db/schema';
-import { generateId } from 'better-auth';
+import { passenger, booking, ride } from '$lib/server/db/schema';
+import { generateId } from '$lib/utils/id';
 
 function requirePassenger() {
   const { locals } = getRequestEvent();
@@ -82,7 +82,7 @@ export const getNearbyDrivers = query(async () => {
   const passengerProfile = await requirePassengerProfile();
 
   if (passengerProfile.latitude == null || passengerProfile.longitude == null || !passengerProfile.isWaiting) {
-    throw new Error('Please share your location first before viewing nearby drivers');
+    return [];
   }
 
   const routeFilter = passengerProfile.targetRouteId ?? null;
@@ -258,21 +258,46 @@ export const getBookingHistory = query(async () => {
 
 
 export const alightSelf = form(cancelBookingSchema, async (data) => {
-  const passengerProfile = await requirePassengerProfile();
+  try {
+    const passengerProfile = await requirePassengerProfile();
 
-  const updated = await db
-    .update(booking)
-    .set({ status: 'completed', alightedAt: new Date(),
-      alightingLatitude: passengerProfile.latitude,
-      alightingLongitude: passengerProfile.longitude
-    })
-    .where(and(
-      eq(booking.id, data.bookingId),
-      eq(booking.passengerId, passengerProfile.id),
-      eq(booking.status, 'onboard') // only onboard passengers can alight
-    ))
-    .returning({ id: booking.id });
+    const updated = await db.transaction(async (tx) => {
+      const completed = await tx
+        .update(booking)
+        .set({
+          status: 'completed',
+          alightedAt: new Date(),
+          alightingLatitude: passengerProfile.latitude,
+          alightingLongitude: passengerProfile.longitude
+        })
+        .where(and(
+          eq(booking.id, data.bookingId),
+          eq(booking.passengerId, passengerProfile.id),
+          eq(booking.status, 'onboard') // only onboard passengers can alight
+        ))
+        .returning({ id: booking.id, rideId: booking.rideId });
 
-  if (!updated.length) throw new Error('Booking not found or not onboard');
-  return { success: true };
+      if (!completed.length) {
+        return completed;
+      }
+
+      await tx
+        .update(ride)
+        .set({ availableSeats: sql`${ride.availableSeats} + 1` })
+        .where(and(
+          eq(ride.id, completed[0].rideId),
+          eq(ride.status, 'ongoing')
+        ));
+
+      return completed;
+    });
+
+    if (!updated.length) {
+      return { success: false, error: 'Booking not found or not onboard' };
+    }
+    
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Unable to alight right now. Please try again.' };
+  }
 });

@@ -1,12 +1,12 @@
 import { db } from "$lib/server/db";
 import { ride, booking, driver } from "$lib/server/db/schema";
-import { generateId } from "better-auth";
+import { generateId } from "$lib/utils/id";
 import { getRequestEvent } from "$app/server";
 import { form, query } from "$app/server";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
 import { endRideSchema, startRideSchema, bookingActionSchema, updateLocationSchema } from "$lib/schema/driver";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 
 async function requireDriver() {
   const { locals } = getRequestEvent();
@@ -102,25 +102,94 @@ export const startRide = form(startRideSchema, async (data) => {
 });
 
 export const endRide = form(endRideSchema, async (data) => {
-  const driverProfile = await requireDriver();
+  try {
+    const driverProfile = await requireDriver();
 
-  const endedRide = await db
-    .update(ride)
-    .set({ status: 'completed', endAt: new Date() })
-    .where(
-      and(
-        eq(ride.id, data.rideId),
-        eq(ride.driverId, driverProfile.id),
-        eq(ride.status, 'ongoing')
-      )
-    )
-    .returning({ id: ride.id });
+    const result = await db.transaction(async (tx) => {
+      const endTime = new Date();
+      
+      // Target the specific ride ID provided by the client
+      if (!data.rideId) {
+        return { kind: 'no-ride-id' as const };
+      }
 
-  if (endedRide.length === 0) {
-    throw error(409, 'Ride not found, not yours, or already ended');
+      // Verify the ride exists and belongs to this driver
+      const targetRide = await tx.query.ride.findFirst({
+        where: (r, { and, eq }) => and(
+          eq(r.id, data.rideId),
+          eq(r.driverId, driverProfile.id),
+          eq(r.status, 'ongoing')
+        ),
+        columns: { id: true }
+      });
+
+      if (!targetRide) {
+        return { kind: 'ride-not-found' as const, rideId: data.rideId };
+      }
+
+      // Auto-alight all onboard passengers for this ride
+      const autoAlighted = await tx
+        .update(booking)
+        .set({ status: 'completed', alightedAt: endTime })
+        .where(
+          and(
+            eq(booking.rideId, data.rideId),
+            eq(booking.status, 'onboard')
+          )
+        )
+        .returning({ id: booking.id });
+
+      // End the specific ride
+      const endedRide = await tx
+        .update(ride)
+        .set({ status: 'completed', endAt: endTime })
+        .where(
+          and(
+            eq(ride.id, data.rideId),
+            eq(ride.driverId, driverProfile.id),
+            eq(ride.status, 'ongoing')
+          )
+        )
+        .returning({ id: ride.id });
+
+      if (endedRide.length !== 1) {
+        return {
+          kind: 'update-failed' as const,
+          rideId: data.rideId,
+          updatedCount: endedRide.length
+        };
+      }
+
+      return {
+        kind: 'success' as const,
+        autoAlightedCount: autoAlighted.length,
+        endedRideCount: endedRide.length
+      };
+    });
+
+    if (result.kind === 'no-ride-id') {
+      return { success: false, error: 'No ride ID provided. Please try again.' };
+    }
+
+    if (result.kind === 'ride-not-found') {
+      return { success: false, error: 'Ride not found or already ended. Please refresh.' };
+    }
+
+    if (result.kind === 'update-failed') {
+      return {
+        success: false,
+        error: `Update failed for ride ${result.rideId}. Expected 1 update, got ${result.updatedCount}`
+      };
+    }
+
+    return {
+      success: true,
+      autoAlightedCount: result.autoAlightedCount,
+      endedRideCount: result.endedRideCount
+    };
+  } catch {
+    return { success: false, error: 'Unable to end ride right now. Please try again.' };
   }
-
-  return { success: true };
 });
 
 export const getOngoingRide = query(async () => {
@@ -136,7 +205,16 @@ export const getOngoingRide = query(async () => {
       vehicle: true
     }
   });
-  return ongoingRide;
+  if (!ongoingRide) return null;
+
+  const totalSeats = ongoingRide.vehicle?.capacity ?? 0;
+  const occupiedSeats = Math.max(0, totalSeats - ongoingRide.availableSeats);
+
+  return {
+    ...ongoingRide,
+    totalSeats,
+    occupiedSeats
+  };
 });
 
 export const getBookings = query(async () => {
@@ -176,18 +254,6 @@ export const acceptBooking = form(bookingActionSchema, async (data) => {
     });
 
     if (!currentRide) throw error(404, 'No ongoing ride');
-
-    // Debug: Check booking state before update
-    const bookingBefore = await tx.query.booking.findFirst({
-      where: (b, { eq }) => eq(b.id, data.bookingId)
-    });
-    console.log('[acceptBooking] Booking before update:', {
-      bookingId: data.bookingId,
-      currentRideId: currentRide.id,
-      bookingExists: !!bookingBefore,
-      bookingRideId: bookingBefore?.rideId,
-      bookingStatus: bookingBefore?.status
-    });
 
     const updatedBooking = await tx
       .update(booking)
@@ -326,4 +392,31 @@ export const toggleDriverAvailability = form(z.object(), async () => {
     .where(eq(driver.id, driverProfile.id));
 
   return { success: true, isAvailable: newStatus };
+});
+
+export const getTripHistory = query(async () => {
+  const driverProfile = await requireDriver();
+
+  const pastRides = await db.query.ride.findMany({
+    where: (r, { eq, and }) => and(
+      eq(r.driverId, driverProfile.id),
+      eq(r.status, 'completed')
+    ),
+    with: {
+      route: true,
+      vehicle: true,
+      bookings: {
+        with: {
+          passenger: {
+            with: {
+              user: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: (r) => desc(r.endAt)
+  });
+
+  return pastRides;
 });
