@@ -138,8 +138,7 @@
 				iconSize: [32, 32],
 				iconAnchor: [16, 32]
 			})
-		})
-			.addTo(map);
+		}).addTo(map);
 
 		// Safely create popup with escaped user-controlled label to prevent XSS
 		// The label comes from external API (Nominatim) and must be escaped before HTML insertion
@@ -219,8 +218,7 @@
 		const dLon = ((b[1] - a[1]) * Math.PI) / 180;
 		const lat1 = (a[0] * Math.PI) / 180;
 		const lat2 = (b[0] * Math.PI) / 180;
-		const x =
-			Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+		const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
 		return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 	}
 
@@ -228,10 +226,10 @@
 		const route =
 			originSelected && destinationSelected && distance !== null && !isLoadingRoute
 				? {
-					origin: originSelected,
-					destination: destinationSelected,
-					distance: parseFloat(distance.toFixed(2))
-				}
+						origin: originSelected,
+						destination: destinationSelected,
+						distance: parseFloat(distance.toFixed(2))
+					}
 				: null;
 
 		const routeKey = route
@@ -468,8 +466,12 @@
 		flex-shrink: 0;
 	}
 
-	.dot-origin { background: #16a34a; }
-	.dot-destination { background: #dc2626; }
+	.dot-origin {
+		background: #16a34a;
+	}
+	.dot-destination {
+		background: #dc2626;
+	}
 
 	.search-input-wrap {
 		position: relative;
@@ -485,7 +487,9 @@
 		font-size: 0.875rem;
 		background: white;
 		color: #111827;
-		transition: border-color 0.15s, box-shadow 0.15s;
+		transition:
+			border-color 0.15s,
+			box-shadow 0.15s;
 		box-sizing: border-box;
 	}
 
@@ -511,7 +515,11 @@
 		animation: spin 0.6s linear infinite;
 	}
 
-	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 
 	.results-list {
 		list-style: none;
@@ -545,8 +553,13 @@
 		text-overflow: ellipsis;
 	}
 
-	.results-list li:last-child button { border-bottom: none; }
-	.results-list li button:hover { background: #eff6ff; color: #1d4ed8; }
+	.results-list li:last-child button {
+		border-bottom: none;
+	}
+	.results-list li button:hover {
+		background: #eff6ff;
+		color: #1d4ed8;
+	}
 
 	.route-summary {
 		background: white;
@@ -566,8 +579,16 @@
 		font-size: 0.825rem;
 	}
 
-	.summary-label { color: #6b7280; font-weight: 500; flex-shrink: 0; }
-	.summary-value { color: #111827; font-weight: 600; text-align: right; }
+	.summary-label {
+		color: #6b7280;
+		font-weight: 500;
+		flex-shrink: 0;
+	}
+	.summary-value {
+		color: #111827;
+		font-weight: 600;
+		text-align: right;
+	}
 
 	.truncate {
 		overflow: hidden;
@@ -583,7 +604,10 @@
 		overflow: hidden;
 	}
 
-	.map { width: 100%; height: 100%; }
+	.map {
+		width: 100%;
+		height: 100%;
+	}
 
 	.map-hint {
 		position: absolute;
@@ -634,14 +658,22 @@
 		box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
 	}
 
-	:global(.origin-marker) { background: #16a34a; }
-	:global(.destination-marker) { background: #dc2626; }
+	:global(.origin-marker) {
+		background: #16a34a;
+	}
+	:global(.destination-marker) {
+		background: #dc2626;
+	}
 
 	:global(.leaflet-control-zoom),
 	:global(.leaflet-control-attribution),
-	:global(.leaflet-control) { z-index: 999 !important; }
+	:global(.leaflet-control) {
+		z-index: 999 !important;
+	}
 
 	:global(.leaflet-pane),
 	:global(.leaflet-top),
-	:global(.leaflet-bottom) { z-index: 998 !important; }
+	:global(.leaflet-bottom) {
+		z-index: 998 !important;
+	}
 </style>

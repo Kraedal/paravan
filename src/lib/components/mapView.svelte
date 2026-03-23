@@ -3,6 +3,9 @@
 	import 'leaflet/dist/leaflet.css';
 	import type * as Leaflet from 'leaflet';
 	import { SvelteMap } from 'svelte/reactivity';
+	import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png';
+	import markerIconUrl from 'leaflet/dist/images/marker-icon.png';
+	import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png';
 
 	type OverlayMarker = {
 		id: string;
@@ -67,6 +70,11 @@
 	onMount(() => {
 		void (async () => {
 			L = await import('leaflet');
+			L.Icon.Default.mergeOptions({
+				iconRetinaUrl: markerIcon2xUrl,
+				iconUrl: markerIconUrl,
+				shadowUrl: markerShadowUrl
+			});
 			map = L.map(mapElement, { zoomControl: false }).setView(center, zoom);
 
 			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

@@ -11,5 +11,5 @@
 </script>
 
 <div class="mx-auto max-w-7xl">
-	<h2 class="m-8 text-2xl text-black">{greeting}, {firstName} 👋</h2>
+	<h2 class="m-8 text-sm text-black/60">{greeting}, {firstName}!</h2>
 </div>
