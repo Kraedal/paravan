@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { haversineDistance, calcETA } from '$lib/utils/eta';
+	import Greetings from '$lib/components/greetings.svelte';
+
 	import MapView from '$lib/components/mapView.svelte';
 	import {
 		setReady,
@@ -12,6 +14,7 @@
 		getPassengerProfile,
 		alightSelf
 	} from '$lib/api/passenger.remote';
+	import { MapPin, Van } from '@lucide/svelte';
 
 	type Driver = {
 		driverId: string;
@@ -22,15 +25,13 @@
 		ride: {
 			id: string;
 			routeId: string;
-			route:
-				| {
-						name: string;
-						originLatitude: number;
-						originLongitude: number;
-						destinationLatitude: number;
-						destinationLongitude: number;
-				  }
-				| null;
+			route: {
+				name: string;
+				originLatitude: number;
+				originLongitude: number;
+				destinationLatitude: number;
+				destinationLongitude: number;
+			} | null;
 		} | null;
 		availableSeats: number;
 	};
@@ -41,22 +42,24 @@
 		ride: {
 			driver: { user: { name: string }; latitude: number | null; longitude: number | null };
 			vehicle: { plateNumber: string; model: string };
-			route:
-				| {
-						name: string;
-						originLatitude: number;
-						originLongitude: number;
-						destinationLatitude: number;
-						destinationLongitude: number;
-				  }
-				| null;
+			route: {
+				name: string;
+				originLatitude: number;
+				originLongitude: number;
+				destinationLatitude: number;
+				destinationLongitude: number;
+			} | null;
 		};
 	} | null;
 
 	type PageState = 'idle' | 'locating' | 'waiting' | 'pending' | 'onboard';
 	let pageState: PageState = $state('idle');
 	let nearbyDrivers: Driver[] = $state([]);
-	let selectedDriver: Driver | null = $state(null);
+	let selectedDriverId: string | null = $state(null);
+	let selectedDriver: Driver | null = $derived.by(() => {
+		if (!selectedDriverId) return null;
+		return nearbyDrivers.find((d: Driver) => d.driverId === selectedDriverId) ?? null;
+	});
 	let activeBooking: ActiveBooking = $state(null);
 	let passengerLocation: [number, number] | null = $state(null);
 	let locationError: string = $state('');
@@ -66,7 +69,15 @@
 	let pendingLocationPayload: [string, string] | null = $state(null);
 	let bookingRideId: string = $state('');
 	let cancelBookingId: string = $state('');
+	let alightingBookingId: string | null = $state(null);
 	let mapCenter: [number, number] = $state([14.5995, 120.9842]);
+	let activeBookingRequestSeq = 0;
+	let bookingMutationEpoch = 0;
+	let lastSeenSetReadyResult: unknown = null;
+	let lastSeenSetNotReadyResult: unknown = null;
+	let lastSeenRequestBookingResult: unknown = null;
+	let lastSeenCancelBookingResult: unknown = null;
+	let lastSeenAlightSelfResult: unknown = null;
 
 	let setReadyFormEl: HTMLFormElement;
 	let setNotReadyFormEl: HTMLFormElement;
@@ -120,9 +131,9 @@
 	});
 
 	let distanceToDriver = $derived.by(() => {
-  if (!passengerLocation || !driverLiveLocation) return null;
-  return haversineDistance(passengerLocation, driverLiveLocation);
-});
+		if (!passengerLocation || !driverLiveLocation) return null;
+		return haversineDistance(passengerLocation, driverLiveLocation);
+	});
 
 	let etaToPassenger = $derived.by(() => {
 		if (distanceToDriver == null) return null;
@@ -132,6 +143,8 @@
 	$effect(() => {
 		const result = setReady.result as { success?: boolean; error?: string } | null;
 		if (!result) return;
+		if (result === lastSeenSetReadyResult) return;
+		lastSeenSetReadyResult = result;
 
 		if (result.success) {
 			if (passengerLocation) mapCenter = passengerLocation;
@@ -153,17 +166,11 @@
 	$effect(() => {
 		const result = setNotReady.result as { success?: boolean; error?: string } | null;
 		if (!result) return;
+		if (result === lastSeenSetNotReadyResult) return;
+		lastSeenSetNotReadyResult = result;
 
 		if (result.success) {
-			stopPolling();
-			stopLocationWatch();
-			nearbyDrivers = [];
-			selectedDriver = null;
-			showDriverSheet = false;
-			passengerLocation = null;
-			activeBooking = null;
-			locationError = '';
-			pageState = 'idle';
+			window.location.reload();
 			return;
 		}
 
@@ -173,10 +180,21 @@
 	});
 
 	$effect(() => {
+		if (!showDriverSheet) return;
+		if (selectedDriverId && !selectedDriver) {
+			showDriverSheet = false;
+			selectedDriverId = null;
+		}
+	});
+
+	$effect(() => {
 		const result = requestBooking.result as { success?: boolean; error?: string } | null;
 		if (!result) return;
+		if (result === lastSeenRequestBookingResult) return;
+		lastSeenRequestBookingResult = result;
 
 		if (result.success) {
+			bookingMutationEpoch += 1;
 			showDriverSheet = false;
 			pageState = 'pending';
 			void checkBookingStatus();
@@ -194,8 +212,11 @@
 	$effect(() => {
 		const result = cancelBooking.result as { success?: boolean; error?: string } | null;
 		if (!result) return;
+		if (result === lastSeenCancelBookingResult) return;
+		lastSeenCancelBookingResult = result;
 
 		if (result.success) {
+			bookingMutationEpoch += 1;
 			activeBooking = null;
 			pageState = 'waiting';
 			void refreshDrivers();
@@ -206,6 +227,25 @@
 		if (result.error) {
 			alert(result.error);
 			cancelBookingId = '';
+		}
+	});
+
+	$effect(() => {
+		const result = alightSelf.result as { success?: boolean; error?: string } | null;
+		if (!result) return;
+		if (result === lastSeenAlightSelfResult) return;
+		lastSeenAlightSelfResult = result;
+
+		if (result.success) {
+			pageState = 'idle';
+			activeBooking = null;
+			alightingBookingId = null;
+			return;
+		}
+
+		if (result.error) {
+			alert(result.error);
+			alightingBookingId = null;
 		}
 	});
 
@@ -220,7 +260,9 @@
 				mapCenter = coords;
 				pendingLocationPayload = [String(coords[0]), String(coords[1])];
 				const latInput = setReadyFormEl.querySelector('input[name="latitude"]') as HTMLInputElement;
-				const lngInput = setReadyFormEl.querySelector('input[name="longitude"]') as HTMLInputElement;
+				const lngInput = setReadyFormEl.querySelector(
+					'input[name="longitude"]'
+				) as HTMLInputElement;
 				latInput.value = String(coords[0]);
 				lngInput.value = String(coords[1]);
 				setReadyFormEl.requestSubmit();
@@ -289,7 +331,11 @@
 
 	async function checkBookingStatus() {
 		try {
+			const requestSeq = ++activeBookingRequestSeq;
+			const mutationEpochAtStart = bookingMutationEpoch;
 			await activeBookingQuery.refresh();
+			if (requestSeq !== activeBookingRequestSeq) return;
+			if (mutationEpochAtStart !== bookingMutationEpoch) return;
 			const booking = (activeBookingQuery.current as ActiveBooking) ?? null;
 			if (!booking) {
 				pageState = 'waiting';
@@ -305,8 +351,12 @@
 
 	function requestRide() {
 		if (!selectedDriver?.ride) return;
+		if (requestBooking.pending > 0) return;
+		bookingMutationEpoch += 1;
 		bookingRideId = selectedDriver.ride.id;
-		const rideIdInput = requestBookingFormEl.querySelector('input[name="rideId"]') as HTMLInputElement;
+		const rideIdInput = requestBookingFormEl.querySelector(
+			'input[name="rideId"]'
+		) as HTMLInputElement;
 		rideIdInput.value = selectedDriver.ride.id;
 		requestBookingFormEl.requestSubmit();
 	}
@@ -314,14 +364,16 @@
 	function cancelRide() {
 		if (!activeBooking) return;
 		cancelBookingId = activeBooking.id;
-		const bookingIdInput = cancelBookingFormEl.querySelector('input[name="bookingId"]') as HTMLInputElement;
+		const bookingIdInput = cancelBookingFormEl.querySelector(
+			'input[name="bookingId"]'
+		) as HTMLInputElement;
 		bookingIdInput.value = activeBooking.id;
 		cancelBookingFormEl.requestSubmit();
 	}
 
 	function closeDriverSheet() {
 		showDriverSheet = false;
-		selectedDriver = null;
+		selectedDriverId = null;
 	}
 
 	function handleMapOverlayMarkerClick(markerId: string) {
@@ -332,26 +384,28 @@
 		const driver = nearbyDrivers.find((d: Driver) => d.driverId === driverId);
 		if (!driver) return;
 
-		selectedDriver = driver;
+		selectedDriverId = driver.driverId;
 		showDriverSheet = true;
 	}
 
 	function handleAlightSelf() {
 		if (!activeBooking) return;
-		const bookingIdInput = alightSelfFormEl.querySelector('input[name="bookingId"]') as HTMLInputElement;
+		if (alightingBookingId || alightSelf.pending > 0) return; // Prevent double-clicks
+		alightingBookingId = activeBooking.id;
+		const bookingIdInput = alightSelfFormEl.querySelector(
+			'input[name="bookingId"]'
+		) as HTMLInputElement;
 		bookingIdInput.value = activeBooking.id;
 		alightSelfFormEl.requestSubmit();
 	}
 
-	let activeRoute:
-		| {
-				name: string;
-				originLatitude: number;
-				originLongitude: number;
-				destinationLatitude: number;
-				destinationLongitude: number;
-		  }
-		| null = $derived.by(() => {
+	let activeRoute: {
+		name: string;
+		originLatitude: number;
+		originLongitude: number;
+		destinationLatitude: number;
+		destinationLongitude: number;
+	} | null = $derived.by(() => {
 		const booking = activeBooking;
 		return booking ? booking.ride.route : null;
 	});
@@ -469,28 +523,13 @@
 		/>
 	</div>
 
-	<!-- Top bar -->
-	<header class="top-bar">
-		<div class="app-brand">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
-			<span>Para</span>
-		</div>
-
-		{#if pageState === 'waiting'}
-			<div class="driver-count-pill">
-				<span class="count-dot"></span>
-				{nearbyDrivers.length} van{nearbyDrivers.length !== 1 ? 's' : ''} nearby
-			</div>
-		{/if}
-	</header>
-
 	<!-- Bottom sheet area -->
 	<div class="bottom-area">
-
 		<!-- IDLE STATE -->
 		{#if pageState === 'idle'}
 			<div class="bottom-sheet idle-sheet">
 				<div class="sheet-handle"></div>
+				<Greetings />
 				<p class="sheet-eyebrow">Ready to ride?</p>
 				<h2 class="sheet-title">Find a van near you</h2>
 				<p class="sheet-sub">Share your location to see available UV Express vans on the map.</p>
@@ -498,12 +537,12 @@
 					<p class="error-note">{locationError}</p>
 				{/if}
 				<button class="primary-btn" onclick={shareLocation}>
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+					<MapPin size="16"  />
 					Share My Location
 				</button>
 			</div>
 
-		<!-- LOCATING STATE -->
+			<!-- LOCATING STATE -->
 		{:else if pageState === 'locating'}
 			<div class="bottom-sheet locating-sheet">
 				<div class="sheet-handle"></div>
@@ -514,7 +553,7 @@
 				<p class="locating-text">Getting your location…</p>
 			</div>
 
-		<!-- WAITING STATE -->
+			<!-- WAITING STATE -->
 		{:else if pageState === 'waiting'}
 			<div class="bottom-sheet waiting-sheet">
 				<div class="sheet-handle"></div>
@@ -534,20 +573,51 @@
 
 				{#if nearbyDrivers.length === 0}
 					<div class="empty-state">
-						<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+						<Van size="48" color="#94a3b8" />
 						<p>Tap a van on the map to request a ride</p>
 					</div>
 				{:else}
 					<ul class="driver-list">
 						{#each nearbyDrivers as d (d.driverId)}
 							<li>
-								<button class="driver-card" onclick={() => { selectedDriver = d; showDriverSheet = true; }}>
-									<div class="driver-icon" style="background: {d.availableSeats === 0 ? '#fee2e2' : '#dcfce7'}">
-										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{d.availableSeats === 0 ? '#ef4444' : '#16a34a'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+								<button
+									class="driver-card"
+									onclick={() => {
+										selectedDriverId = d.driverId;
+										showDriverSheet = true;
+									}}
+								>
+									<div
+										class="driver-icon"
+										style="background: {d.availableSeats === 0 ? '#fee2e2' : '#dcfce7'}"
+									>
+										<svg
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke={d.availableSeats === 0 ? '#ef4444' : '#16a34a'}
+											stroke-width="2.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3" /><rect
+												width="13"
+												height="9"
+												x="9"
+												y="11"
+												rx="1"
+											/><circle cx="11.5" cy="20" r="1.5" /><circle
+												cx="19.5"
+												cy="20"
+												r="1.5"
+											/></svg
+										>
 									</div>
 									<div class="driver-info">
 										<span class="driver-name">{d.name}</span>
-										<span class="driver-meta">{d.vehicle?.model ?? 'UV Express'} · {d.ride?.route?.name ?? 'Route'}</span>
+										<span class="driver-meta"
+											>{d.vehicle?.model ?? 'UV Express'} · {d.ride?.route?.name ?? 'Route'}</span
+										>
 									</div>
 									<div class="seat-badge" class:full={d.availableSeats === 0}>
 										<span class="seat-num">{d.availableSeats}</span>
@@ -560,7 +630,7 @@
 				{/if}
 			</div>
 
-		<!-- PENDING STATE -->
+			<!-- PENDING STATE -->
 		{:else if pageState === 'pending'}
 			<div class="bottom-sheet status-sheet pending-state">
 				<div class="sheet-handle"></div>
@@ -577,7 +647,9 @@
 						</div>
 						<div class="detail-row">
 							<span class="detail-key">Vehicle</span>
-							<span class="detail-val">{activeBooking.ride.vehicle.model} · {activeBooking.ride.vehicle.plateNumber}</span>
+							<span class="detail-val"
+								>{activeBooking.ride.vehicle.model} · {activeBooking.ride.vehicle.plateNumber}</span
+							>
 						</div>
 						<div class="detail-row">
 							<span class="detail-key">Route</span>
@@ -601,12 +673,21 @@
 				<button class="ghost-btn" onclick={cancelRide}>Cancel Request</button>
 			</div>
 
-		<!-- ONBOARD STATE -->
+			<!-- ONBOARD STATE -->
 		{:else if pageState === 'onboard'}
 			<div class="bottom-sheet status-sheet onboard-state">
 				<div class="sheet-handle"></div>
 				<div class="status-icon onboard-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+					<svg
+						width="24"
+						height="24"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="white"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg
+					>
 				</div>
 				<p class="sheet-eyebrow">You're on board!</p>
 				<h2 class="sheet-title">Enjoy your ride</h2>
@@ -618,7 +699,9 @@
 						</div>
 						<div class="detail-row">
 							<span class="detail-key">Vehicle</span>
-							<span class="detail-val">{activeBooking.ride.vehicle.model} · {activeBooking.ride.vehicle.plateNumber}</span>
+							<span class="detail-val"
+								>{activeBooking.ride.vehicle.model} · {activeBooking.ride.vehicle.plateNumber}</span
+							>
 						</div>
 						<div class="detail-row">
 							<span class="detail-key">Route</span>
@@ -627,8 +710,12 @@
 					</div>
 				{/if}
 				{#if activeBooking?.status === 'onboard'}
-					<button class="primary-btn" onclick={handleAlightSelf}>
-						I'm Alighting
+					<button
+						class="primary-btn"
+						onclick={handleAlightSelf}
+						disabled={alightingBookingId !== null}
+					>
+						{alightingBookingId ? 'Alighting...' : "I'm Alighting"}
 					</button>
 				{/if}
 			</div>
@@ -651,11 +738,30 @@
 			<div class="sheet-handle"></div>
 			<div class="request-header">
 				<div class="request-van-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+					<svg
+						width="24"
+						height="24"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="white"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3" /><rect
+							width="13"
+							height="9"
+							x="9"
+							y="11"
+							rx="1"
+						/><circle cx="11.5" cy="20" r="1.5" /><circle cx="19.5" cy="20" r="1.5" /></svg
+					>
 				</div>
 				<div>
 					<h3 class="request-driver-name">{selectedDriver.name}</h3>
-					<p class="request-meta">{selectedDriver.vehicle?.model ?? 'UV Express'} · {selectedDriver.vehicle?.plateNumber ?? '—'}</p>
+					<p class="request-meta">
+						{selectedDriver.vehicle?.model ?? 'UV Express'} · {selectedDriver.vehicle
+							?.plateNumber ?? '—'}
+					</p>
 				</div>
 			</div>
 
@@ -673,16 +779,18 @@
 			</div>
 
 			{#if selectedDriver.availableSeats > 0}
-				<button class="primary-btn request-ride-btn" onclick={requestRide}>
+				<button
+					class="primary-btn request-ride-btn"
+					onclick={requestRide}
+					disabled={requestBooking.pending > 0}
+				>
 					Request This Van
 				</button>
 			{:else}
 				<div class="full-notice">This van is full. Try another one.</div>
 			{/if}
 
-			<button class="ghost-btn" onclick={closeDriverSheet}>
-				Cancel
-			</button>
+			<button class="ghost-btn" onclick={closeDriverSheet}> Cancel </button>
 		</div>
 	{/if}
 </div>
@@ -690,7 +798,11 @@
 <style>
 	@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap');
 
-	:global(body) { margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
+	:global(body) {
+		margin: 0;
+		padding: 0;
+		font-family: 'Outfit', sans-serif;
+	}
 
 	.passenger-root {
 		position: relative;
@@ -708,55 +820,12 @@
 		height: 100%;
 	}
 
-	/* Top bar */
-	.top-bar {
-		position: absolute;
-		top: 0; left: 0; right: 0;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem 1.25rem;
-		background: linear-gradient(to bottom, rgba(15,23,42,0.7) 0%, transparent 100%);
-		z-index: 10;
-	}
-
-	.app-brand {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		color: white;
-		font-size: 1.1rem;
-		font-weight: 800;
-		letter-spacing: -0.02em;
-	}
-
-	.driver-count-pill {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		background: rgba(255,255,255,0.15);
-		backdrop-filter: blur(8px);
-		border: 1px solid rgba(255,255,255,0.2);
-		border-radius: 2rem;
-		padding: 0.3rem 0.75rem;
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: white;
-	}
-
-	.count-dot {
-		width: 7px; height: 7px;
-		border-radius: 50%;
-		background: #22c55e;
-		animation: blink 1.5s ease-in-out infinite;
-	}
-
-	@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
 	/* Bottom area */
 	.bottom-area {
 		position: absolute;
-		bottom: 0; left: 0; right: 0;
+		bottom: 0;
+		left: 0;
+		right: 0;
 		z-index: 10;
 	}
 
@@ -765,11 +834,12 @@
 		background: white;
 		border-radius: 1.5rem 1.5rem 0 0;
 		padding: 0.75rem 1.5rem 2.5rem;
-		box-shadow: 0 -8px 40px rgba(0,0,0,0.15);
+		box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.15);
 	}
 
 	.sheet-handle {
-		width: 40px; height: 4px;
+		width: 40px;
+		height: 4px;
 		background: #e2e8f0;
 		border-radius: 2px;
 		margin: 0 auto 1.25rem;
@@ -800,23 +870,31 @@
 	}
 
 	/* Idle */
-	.idle-sheet { text-align: center; }
+	.idle-sheet {
+		text-align: center;
+	}
 	.idle-sheet .sheet-eyebrow,
 	.idle-sheet .sheet-title,
-	.idle-sheet .sheet-sub { text-align: center; }
+	.idle-sheet .sheet-sub {
+		text-align: center;
+	}
 
 	/* Locating */
-	.locating-sheet { text-align: center; padding-top: 1rem; }
+	.locating-sheet {
+		text-align: center;
+		padding-top: 1rem;
+	}
 	.locating-anim {
 		position: relative;
-		width: 56px; height: 56px;
+		width: 56px;
+		height: 56px;
 		margin: 0 auto 1rem;
 	}
 	.pulse-ring {
 		position: absolute;
 		inset: 0;
 		border-radius: 50%;
-		background: rgba(245,158,11,0.15);
+		background: rgba(245, 158, 11, 0.15);
 		animation: expand 1.5s ease-out infinite;
 	}
 	.pulse-core {
@@ -825,8 +903,21 @@
 		border-radius: 50%;
 		background: #f59e0b;
 	}
-	@keyframes expand { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
-	.locating-text { font-size: 0.95rem; font-weight: 600; color: #475569; }
+	@keyframes expand {
+		0% {
+			transform: scale(0.8);
+			opacity: 1;
+		}
+		100% {
+			transform: scale(1.6);
+			opacity: 0;
+		}
+	}
+	.locating-text {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #475569;
+	}
 
 	/* Waiting */
 	.waiting-header {
@@ -848,43 +939,43 @@
 	}
 
 	.eta-card {
-  display: flex;
-  align-items: center;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 0.75rem;
-  padding: 0.875rem 1rem;
-  margin: 0.75rem 0;
-  gap: 1rem;
-}
+		display: flex;
+		align-items: center;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 0.75rem;
+		padding: 0.875rem 1rem;
+		margin: 0.75rem 0;
+		gap: 1rem;
+	}
 
-.eta-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2rem;
-}
+	.eta-item {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+	}
 
-.eta-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #3b82f6;
-}
+	.eta-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #3b82f6;
+	}
 
-.eta-value {
-  font-size: 1.1rem;
-  font-weight: 800;
-  color: #1e40af;
-}
+	.eta-value {
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #1e40af;
+	}
 
-.eta-divider {
-  width: 1px;
-  height: 36px;
-  background: #bfdbfe;
-}
+	.eta-divider {
+		width: 1px;
+		height: 36px;
+		background: #bfdbfe;
+	}
 
 	.driver-list {
 		list-style: none;
@@ -910,18 +1001,38 @@
 		transition: background 0.15s;
 		text-align: left;
 	}
-	.driver-card:hover { background: #f1f5f9; }
+	.driver-card:hover {
+		background: #f1f5f9;
+	}
 
 	.driver-icon {
-		width: 36px; height: 36px;
+		width: 36px;
+		height: 36px;
 		border-radius: 0.5rem;
-		display: flex; align-items: center; justify-content: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		flex-shrink: 0;
 	}
 
-	.driver-info { flex: 1; min-width: 0; }
-	.driver-name { display: block; font-size: 0.875rem; font-weight: 700; color: #0f172a; }
-	.driver-meta { display: block; font-size: 0.75rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.driver-info {
+		flex: 1;
+		min-width: 0;
+	}
+	.driver-name {
+		display: block;
+		font-size: 0.875rem;
+		font-weight: 700;
+		color: #0f172a;
+	}
+	.driver-meta {
+		display: block;
+		font-size: 0.75rem;
+		color: #64748b;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
 
 	.seat-badge {
 		display: flex;
@@ -932,32 +1043,63 @@
 		padding: 0.375rem 0.625rem;
 		flex-shrink: 0;
 	}
-	.seat-badge.full { background: #fee2e2; }
-	.seat-num { font-size: 1.1rem; font-weight: 800; color: #16a34a; line-height: 1; }
-	.seat-badge.full .seat-num { color: #ef4444; }
-	.seat-label { font-size: 0.6rem; font-weight: 600; color: #16a34a; text-transform: uppercase; }
-	.seat-badge.full .seat-label { color: #ef4444; }
+	.seat-badge.full {
+		background: #fee2e2;
+	}
+	.seat-num {
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #16a34a;
+		line-height: 1;
+	}
+	.seat-badge.full .seat-num {
+		color: #ef4444;
+	}
+	.seat-label {
+		font-size: 0.6rem;
+		font-weight: 600;
+		color: #16a34a;
+		text-transform: uppercase;
+	}
+	.seat-badge.full .seat-label {
+		color: #ef4444;
+	}
 
 	/* Status states */
-	.status-sheet { text-align: center; }
+	.status-sheet {
+		text-align: center;
+	}
 	.status-icon {
-		width: 56px; height: 56px;
+		width: 56px;
+		height: 56px;
 		border-radius: 50%;
-		display: flex; align-items: center; justify-content: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		margin: 0 auto 1rem;
 	}
 
-	.pending-icon { background: #fef3c7; position: relative; }
+	.pending-icon {
+		background: #fef3c7;
+		position: relative;
+	}
 	.status-spinner {
-		width: 28px; height: 28px;
+		width: 28px;
+		height: 28px;
 		border: 3px solid #fde68a;
 		border-top-color: #f59e0b;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
-	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 
-	.onboard-icon { background: #16a34a; }
+	.onboard-icon {
+		background: #16a34a;
+	}
 
 	.booking-detail {
 		background: #f8fafc;
@@ -971,9 +1113,20 @@
 		gap: 0.5rem;
 	}
 
-	.detail-row { display: flex; justify-content: space-between; font-size: 0.825rem; }
-	.detail-key { color: #64748b; font-weight: 500; }
-	.detail-val { color: #0f172a; font-weight: 600; text-align: right; }
+	.detail-row {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.825rem;
+	}
+	.detail-key {
+		color: #64748b;
+		font-weight: 500;
+	}
+	.detail-val {
+		color: #0f172a;
+		font-weight: 600;
+		text-align: right;
+	}
 
 	.alight-note {
 		font-size: 0.8rem;
@@ -986,23 +1139,32 @@
 	.overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(15,23,42,0.4);
+		background: rgba(15, 23, 42, 0.4);
 		z-index: 20;
 		backdrop-filter: blur(2px);
 	}
 
 	.driver-request-sheet {
 		position: fixed;
-		bottom: 0; left: 0; right: 0;
+		bottom: 0;
+		left: 0;
+		right: 0;
 		background: white;
 		border-radius: 1.5rem 1.5rem 0 0;
 		padding: 0.75rem 1.5rem 2.5rem;
 		z-index: 21;
-		box-shadow: 0 -8px 40px rgba(0,0,0,0.2);
+		box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.2);
 		animation: slideUp 0.2s ease-out;
 	}
 
-	@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+	@keyframes slideUp {
+		from {
+			transform: translateY(100%);
+		}
+		to {
+			transform: translateY(0);
+		}
+	}
 
 	.request-header {
 		display: flex;
@@ -1012,15 +1174,27 @@
 	}
 
 	.request-van-icon {
-		width: 48px; height: 48px;
+		width: 48px;
+		height: 48px;
 		background: #0f172a;
 		border-radius: 0.75rem;
-		display: flex; align-items: center; justify-content: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		flex-shrink: 0;
 	}
 
-	.request-driver-name { font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0 0 0.2rem; }
-	.request-meta { font-size: 0.8rem; color: #64748b; margin: 0; }
+	.request-driver-name {
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #0f172a;
+		margin: 0 0 0.2rem;
+	}
+	.request-meta {
+		font-size: 0.8rem;
+		color: #64748b;
+		margin: 0;
+	}
 
 	.request-details {
 		background: #f8fafc;
@@ -1033,13 +1207,29 @@
 		gap: 0.625rem;
 	}
 
-	.req-detail { display: flex; justify-content: space-between; font-size: 0.875rem; }
-	.req-label { color: #64748b; font-weight: 500; }
-	.req-val { color: #0f172a; font-weight: 700; }
-	.seats-val { color: #16a34a; }
-	.no-seats { color: #ef4444 !important; }
+	.req-detail {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.875rem;
+	}
+	.req-label {
+		color: #64748b;
+		font-weight: 500;
+	}
+	.req-val {
+		color: #0f172a;
+		font-weight: 700;
+	}
+	.seats-val {
+		color: #16a34a;
+	}
+	.no-seats {
+		color: #ef4444 !important;
+	}
 
-	.request-ride-btn { margin-bottom: 0.75rem; }
+	.request-ride-btn {
+		margin-bottom: 0.75rem;
+	}
 
 	.full-notice {
 		text-align: center;
@@ -1068,10 +1258,16 @@
 		font-size: 0.9375rem;
 		font-weight: 700;
 		cursor: pointer;
-		transition: background 0.15s, transform 0.1s;
+		transition:
+			background 0.15s,
+			transform 0.1s;
 	}
-	.primary-btn:hover { background: #1e293b; }
-	.primary-btn:active { transform: scale(0.98); }
+	.primary-btn:hover {
+		background: #1e293b;
+	}
+	.primary-btn:active {
+		transform: scale(0.98);
+	}
 
 	.ghost-btn {
 		width: 100%;
@@ -1086,7 +1282,9 @@
 		cursor: pointer;
 		transition: background 0.15s;
 	}
-	.ghost-btn:hover { background: #f8fafc; }
+	.ghost-btn:hover {
+		background: #f8fafc;
+	}
 
 	.stop-btn {
 		padding: 0.375rem 0.875rem;
@@ -1111,14 +1309,25 @@
 	/* Leaflet z-index fixes */
 	:global(.leaflet-control-zoom),
 	:global(.leaflet-control-attribution),
-	:global(.leaflet-control) { z-index: 9 !important; }
+	:global(.leaflet-control) {
+		z-index: 9 !important;
+	}
 	:global(.leaflet-pane),
 	:global(.leaflet-top),
-	:global(.leaflet-bottom) { z-index: 8 !important; }
+	:global(.leaflet-bottom) {
+		z-index: 8 !important;
+	}
 
 	/* Pulse animation for self marker */
 	@keyframes pulse {
-		0%, 100% { transform: scale(1); opacity: 0.5; }
-		50% { transform: scale(1.5); opacity: 0; }
+		0%,
+		100% {
+			transform: scale(1);
+			opacity: 0.5;
+		}
+		50% {
+			transform: scale(1.5);
+			opacity: 0;
+		}
 	}
 </style>
