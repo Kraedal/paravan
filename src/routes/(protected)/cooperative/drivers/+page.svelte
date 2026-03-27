@@ -100,7 +100,7 @@
 	<button
 		type="button"
 		onclick={() => (isOpen = true)}
-		class="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+		class="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-2 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 	>
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -116,7 +116,7 @@
 			<line x1="12" x2="12" y1="5" y2="19" />
 			<line x1="5" x2="19" y1="12" y2="12" />
 		</svg>
-		Add Driver
+		<p class="hidden md:block">Add Driver</p>
 	</button>
 </div>
 
@@ -239,20 +239,19 @@
 
 <!-- Assign Vehicle Modal -->
 {#if isAssignOpen}
-	<button
-		type="button"
-		aria-label="Close modal"
+	<div
 		class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
 		onclick={closeAssignModal}
-	></button>
+		role="presentation"
+	></div>
 
 	<div
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="assign-vehicle-title"
-		class="fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
+		class="fixed top-1/2 left-1/2 z-50 w-80 max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
 	>
-		<div class="mb-5 flex items-center justify-between">
+		<div class="mb-5 flex items-center justify-between w-full">
 			<h2 id="assign-vehicle-title" class="text-lg font-semibold text-gray-900">Assign Vehicle</h2>
 			<button
 				type="button"
@@ -308,13 +307,13 @@
 					onclick={closeAssignModal}
 					class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 				>
-					Cancel
+					<p>Cancel</p>
 				</button>
 				<button
 					type="submit"
 					disabled={assignVehicleToDriver.pending > 0 ||
 						(vehicles.ready && (vehicles.current.length === 0 || assignableVehicles.length === 0))}
-					class="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98] disabled:opacity-60"
+					class="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98] disabled:opacity-60"
 				>
 					{assignVehicleToDriver.pending > 0 ? 'Assigning…' : 'Assign Vehicle'}
 				</button>
@@ -336,10 +335,10 @@
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="add-driver-title"
-		class="fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
+		class="fixed top-1/2 left-1/2 z-50 w-80 md:w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
 	>
 		<div class="mb-5 flex items-center justify-between">
-			<h2 id="add-driver-title" class="text-lg font-semibold text-gray-900">Add Driver</h2>
+			<h2 id="add-driver-title" class="text-md font-semibold text-gray-900">Add Driver</h2>
 			<button
 				type="button"
 				onclick={closeModal}

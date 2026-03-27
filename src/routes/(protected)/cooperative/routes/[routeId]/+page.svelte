@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { getRoutes } from '$lib/api/admin.remote';
 	import MapView from '$lib/components/mapView.svelte';
+	import { ChevronLeftIcon } from '@lucide/svelte';
 
 	const routes = getRoutes();
 
@@ -22,9 +23,9 @@
 	<button
 		type="button"
 		onclick={() => goto(resolve('/cooperative/routes'))}
-		class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+		class="rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
 	>
-		Back to Routes
+		<ChevronLeftIcon class="h-4 w-4" />
 	</button>
 </div>
 
@@ -60,14 +61,16 @@
 			<div>
 				<dt class="text-xs font-medium tracking-wide text-gray-500 uppercase">Destination</dt>
 				<dd class="mt-1 text-sm text-gray-900">
-					{selectedRoute.destinationLatitude.toFixed(6)}, {selectedRoute.destinationLongitude.toFixed(6)}
+					{selectedRoute.destinationLatitude.toFixed(6)}, {selectedRoute.destinationLongitude.toFixed(
+						6
+					)}
 				</dd>
 			</div>
 		</dl>
 	</div>
 
-	<div class="mt-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-		<h3 class="mb-3 text-sm font-semibold tracking-wide text-gray-700 uppercase">Route Map</h3>
+	<div class="mt-6 rounded-lg border border-gray-200 bg-white shadow-sm pb-6">
+		<h3 class="mb-3  px-8 pt-6 text-sm font-semibold tracking-wide text-gray-700 uppercase">Route Map</h3>
 		<MapView
 			center={[selectedRoute.originLatitude, selectedRoute.originLongitude]}
 			marker={[selectedRoute.originLatitude, selectedRoute.originLongitude]}
