@@ -51,7 +51,8 @@ export const createRouteSchema = z.object({
 	originLatitude: z.number(),
 	destinationLongitude: z.number(),
 	destinationLatitude: z.number(),
-	distance: z.number().positive('Distance must be a positive number')
+	distance: z.number().positive('Distance must be a positive number'),
+	direction: z.enum(['northbound', 'southbound'])
 });
 
 export const updateRouteSchema = createRouteSchema.partial().extend({

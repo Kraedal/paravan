@@ -127,6 +127,7 @@ export const route = pgTable(
 		destinationLatitude: doublePrecision('destination_latitude').notNull(),
 		destinationLongitude: doublePrecision('destination_longitude').notNull(),
 		distance: doublePrecision('distance').notNull(),
+		direction: text('direction', { enum: ['northbound', 'southbound']}).notNull(),
 		isActive: boolean('is_active').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull()
 	},
@@ -149,9 +150,7 @@ export const ride = pgTable(
 		status: text('status', { enum: ['ongoing', 'completed', 'cancelled'] })
 			.default('ongoing')
 			.notNull(),
-		direction: text('direction', { enum: ['to_destination', 'to_origin'] })
-			.default('to_destination')
-			.notNull(),
+
 		// NEW: Track live occupancy so waiting users know if there is space
 		availableSeats: integer('available_seats').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
