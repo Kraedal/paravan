@@ -1,0 +1,97 @@
+<script lang="ts">
+	import { demandBg, confidenceColor, type DemandLevel } from './dashboardUtils';
+
+	interface DemandSlot {
+		routeName: string;
+		day: string;
+		hourSlot: string;
+		totalRides: number;
+		historicDemandLevel: DemandLevel;
+		forecastedDemandLevel: DemandLevel | null;
+		forecastConfidence: 'low' | 'medium' | 'high' | null;
+	}
+
+	interface DemandSummary {
+		ridesAnalyzed: number;
+		highDemandSlots: number;
+		lowDemandSlots: number;
+		forecastedHighSlots: number;
+	}
+
+	interface Props {
+		patterns?: DemandSlot[];
+		summary?: DemandSummary;
+	}
+
+	let { patterns = [], summary }: Props = $props();
+
+	const displayPatterns = $derived(patterns.slice(0, 8));
+</script>
+
+<div class="bg-white rounded-xl border border-slate-100 p-4 lg:p-5">
+	<div class="flex items-start justify-between mb-4">
+		<div>
+			<h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Demand Forecast</h2>
+			{#if summary}
+				<p class="text-xs text-slate-400 mt-1">{summary.ridesAnalyzed} rides · last 28 days</p>
+			{/if}
+		</div>
+		{#if summary && summary.forecastedHighSlots > 0}
+			<span class="text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-full ring-1 ring-red-100 shrink-0">
+				{summary.forecastedHighSlots} high-demand slot{summary.forecastedHighSlots !== 1 ? 's' : ''}
+			</span>
+		{/if}
+	</div>
+
+	{#if patterns.length > 0}
+		<div class="overflow-x-auto">
+			<table class="w-full">
+				<thead>
+					<tr class="border-b border-slate-100">
+						<th class="text-left pb-2.5 text-xs font-medium text-slate-400 pr-3">Route</th>
+						<th class="text-left pb-2.5 text-xs font-medium text-slate-400 pr-3">Day</th>
+						<th class="text-left pb-2.5 text-xs font-medium text-slate-400 whitespace-nowrap">Time</th>
+						<th class="text-center pb-2.5 text-xs font-medium text-slate-400">Rides</th>
+						<th class="text-center pb-2.5 text-xs font-medium text-slate-400">Historic</th>
+						<th class="text-center pb-2.5 text-xs font-medium text-slate-400">Forecast</th>
+						<th class="text-center pb-2.5 text-xs font-medium text-slate-400 hidden md:table-cell">Conf.</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-slate-50">
+					{#each displayPatterns as p (p.routeName + p.day + p.hourSlot)}
+						<tr class="hover:bg-slate-50/60 transition-colors">
+							<td class="py-2.5 pr-3 text-xs font-medium text-slate-700 max-w-30 truncate">{p.routeName}</td>
+							<td class="py-2.5 pr-3 text-xs text-slate-500">{p.day.slice(0, 3)}</td>
+							<td class="py-2.5 text-xs text-slate-500 whitespace-nowrap">{p.hourSlot}</td>
+							<td class="py-2.5 text-center text-sm font-semibold text-slate-900 tabular-nums">{p.totalRides}</td>
+							<td class="py-2.5 text-center">
+								<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {demandBg(p.historicDemandLevel)}">{p.historicDemandLevel}</span>
+							</td>
+							<td class="py-2.5 text-center">
+								{#if p.forecastedDemandLevel}
+									<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {demandBg(p.forecastedDemandLevel)}">{p.forecastedDemandLevel}</span>
+								{:else}
+									<span class="text-slate-300 text-xs">—</span>
+								{/if}
+							</td>
+							<td class="py-2.5 text-center hidden md:table-cell">
+								{#if p.forecastConfidence}
+									<span class="text-xs font-semibold capitalize" style="color:{confidenceColor(p.forecastConfidence)}">{p.forecastConfidence}</span>
+								{:else}
+									<span class="text-slate-300 text-xs">—</span>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		{#if patterns.length > 8}
+			<p class="text-xs text-slate-300 mt-3 text-center">
+				Showing 8 of {patterns.length} patterns
+			</p>
+		{/if}
+	{:else}
+		<p class="text-sm text-slate-400 py-6 text-center">Not enough ride data to generate forecasts yet.</p>
+	{/if}
+</div>
