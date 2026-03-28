@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { DemandSlot } from '$lib/api/analytics.remote';
-	import { getCooperativeDashboard, getAnalytics } from '$lib/api/admin.remote';
-	import { getDemandPatterns } from '$lib/api/analytics.remote';
+	import { getCooperativeDashboard,  } from '$lib/api/admin.remote';
+	import { getDemandPatterns, getAnalytics } from '$lib/api/analytics.remote';
 
 	// Components
 	import KPICards from '$lib/components/dashboard/KPICards.svelte';
@@ -137,7 +137,7 @@
 	</div>
 
 	<!-- Fill ratio chart -->
-	<FillRatioChart data={fillRatioData} />
+	<!-- <FillRatioChart data={fillRatioData} /> -->
 
 	<!-- Demand heatmap -->
 	<DemandHeatmap patterns={heatmapData} />

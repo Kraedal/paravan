@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { ChevronLeft } from '@lucide/svelte';
 
 	let { children } = $props();
 </script>
@@ -10,7 +11,8 @@
 		onclick={() => goto(resolve('/auth/login'))}
 		class="text-sm text-gray-500 transition hover:text-gray-700"
 	>
-		← Back to login
+		<ChevronLeft class="inline-block h-4 w-4" />
+		Back to Login
 	</button>
 
 	{@render children()}

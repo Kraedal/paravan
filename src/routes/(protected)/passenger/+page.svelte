@@ -73,6 +73,7 @@
 	let mapCenter: [number, number] = $state([14.5995, 120.9842]);
 	let activeBookingRequestSeq = 0;
 	let bookingMutationEpoch = 0;
+	let lastAlightAttemptTime = 0;
 	let lastSeenSetReadyResult: unknown = null;
 	let lastSeenSetNotReadyResult: unknown = null;
 	let lastSeenRequestBookingResult: unknown = null;
@@ -240,12 +241,30 @@
 			pageState = 'idle';
 			activeBooking = null;
 			alightingBookingId = null;
+			// Refresh booking data then reload with longer delay to ensure database persistence
+			void activeBookingQuery.refresh().then(() => {
+				setTimeout(() => {
+					window.location.reload();
+				}, 1000);
+			});
 			return;
 		}
 
 		if (result.error) {
 			alert(result.error);
 			alightingBookingId = null;
+			// Refresh booking state to sync with server and recover UI state
+			void activeBookingQuery.refresh().then(() => {
+				const updatedBooking = (activeBookingQuery.current as ActiveBooking) ?? null;
+				if (updatedBooking) {
+					activeBooking = updatedBooking;
+					pageState = updatedBooking.status === 'onboard' ? 'onboard' : 'pending';
+				} else {
+					// Booking is no longer active, reset to waiting
+					pageState = 'waiting';
+					activeBooking = null;
+				}
+			});
 		}
 	});
 
@@ -391,6 +410,14 @@
 	function handleAlightSelf() {
 		if (!activeBooking) return;
 		if (alightingBookingId || alightSelf.pending > 0) return; // Prevent double-clicks
+		
+		// Add 500ms debounce to prevent rapid race conditions with driver accept
+		const timeSinceLastAttempt = Date.now() - lastAlightAttemptTime;
+		if (timeSinceLastAttempt < 500) return;
+		
+		if (!activeBooking.id) return;
+		
+		lastAlightAttemptTime = Date.now();
 		alightingBookingId = activeBooking.id;
 		const bookingIdInput = alightSelfFormEl.querySelector(
 			'input[name="bookingId"]'

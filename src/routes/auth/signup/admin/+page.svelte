@@ -3,21 +3,16 @@
 	import { resolve } from '$app/paths';
 	import { cooperativeSignUp } from '$lib/api/auth.remote';
 	import logo from '$lib/assets/favicon.svg';
-	import van from '$lib/assets/van.png';
+	import stop from '$lib/assets/building.svg'
 </script>
 
-<div class="flex min-h-screen items-center justify-center bg-[#f7fcfe] px-4">
-	<div class="hidden w-full max-w-sm md:block">
-		<img src={van} alt="A beautiful van" />
-	</div>
+<div class="flex min-h-screen items-center justify-around bg-[#f7fcfe] px-4">
 
+	<div class=" hidden lg:block" >
+		<img src={stop} alt="Para logo" class="w-lg h-full" />
+	</div>
 	<div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 shadow">
-		<button
-			onclick={() => goto(resolve('/auth/login'))}
-			class="mb-6 text-sm text-gray-500 transition hover:text-gray-700"
-		>
-			← Back to login
-		</button>
+
 
 		<div class="mb-6 flex justify-center">
 			<div class="flex h-12 w-12 items-center justify-center rounded-xl">
@@ -113,7 +108,7 @@
 			<button
 				type="submit"
 				disabled={cooperativeSignUp.pending > 0}
-				class="w-full rounded-xl bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+				class="w-full rounded-xl bg-blue-900 py-3 font-medium text-white transition hover:bg-blue-950 disabled:opacity-60"
 			>
 				{cooperativeSignUp.pending > 0 ? 'Creating account…' : 'Create account'}
 			</button>
@@ -123,7 +118,7 @@
 			Already have an account?
 			<button
 				onclick={() => goto(resolve('/auth/login'))}
-				class="font-medium text-blue-600 hover:underline"
+				class="font-medium text-blue-900 hover:underline"
 			>
 				Sign in
 			</button>

@@ -125,6 +125,11 @@
 
 	// Ride state tracking (for preventing stale query overwrites)
 	let lastRideEndTime: number = 0;
+	let lastCompleteAttemptTime: number = 0;
+	let lastAcceptAttemptTime: number = 0;
+	let lastRejectAttemptTime: number = 0;
+	const BOOKING_ACTION_DEBOUNCE: number = 500;
+	const COMPLETE_DEBOUNCE: number = 500;
 
 	// Timers
 	let locationWatcher: number | null = null;
@@ -190,10 +195,16 @@
 		try {
 			const requestSeq = ++bookingsRequestSeq;
 			const mutationEpochAtStart = bookingsMutationEpoch;
-			await bookingsQuery.refresh();
+			await Promise.all([bookingsQuery.refresh(), rideQuery.refresh()]);
 			if (requestSeq !== bookingsRequestSeq) return;
 			if (mutationEpochAtStart !== bookingsMutationEpoch) return;
 			bookings = (bookingsQuery.current as Booking[] | undefined) ?? [];
+			
+			// Only update ride if not in the stale period after ride end
+			const timeSinceRideEnd = Date.now() - lastRideEndTime;
+			if (!(timeSinceRideEnd < 3000 && ongoingRide === null)) {
+				ongoingRide = (rideQuery.current as OngoingRide) ?? null;
+			}
 		} catch {
 			/* silent poll failure */
 		}
@@ -205,6 +216,7 @@
 		pollInterval = setInterval(async () => {
 			if (pageState !== 'driving') return;
 			if (acceptingBookingId || acceptBooking.pending > 0) return;
+			if (completingBookingId || completeBooking.pending > 0) return;
 			await loadBookings();
 		}, 5000);
 	}
@@ -309,7 +321,12 @@
 
 	async function handleAccept(bookingId: string) {
 		if (acceptingBookingId || acceptBooking.pending > 0) return;
-
+		
+		// Add debounce to prevent rapid accept spam
+		const timeSinceLastAttempt = Date.now() - lastAcceptAttemptTime;
+		if (timeSinceLastAttempt < BOOKING_ACTION_DEBOUNCE) return;
+		
+		lastAcceptAttemptTime = Date.now();
 		bookingsMutationEpoch += 1;
 		acceptingBookingId = bookingId;
 		// Optimistically move request to onboard to avoid remove/reinsert flicker.
@@ -322,7 +339,12 @@
 
 	async function handleComplete(bookingId: string) {
 		if (completingBookingId || completeBooking.pending > 0) return;
-
+		
+		// Add debounce to prevent rapid complete actions
+		const timeSinceLastAttempt = Date.now() - lastCompleteAttemptTime;
+		if (timeSinceLastAttempt < COMPLETE_DEBOUNCE) return;
+		
+		lastCompleteAttemptTime = Date.now();
 		bookingsMutationEpoch += 1;
 		completingBookingId = bookingId;
 		// Optimistically mark passenger as completed so occupancy updates immediately.
@@ -335,7 +357,12 @@
 
 	async function handleReject(bookingId: string) {
 		if (rejectingBookingId || rejectBooking.pending > 0) return;
-
+		
+		// Add debounce to prevent rapid reject spam
+		const timeSinceLastAttempt = Date.now() - lastRejectAttemptTime;
+		if (timeSinceLastAttempt < BOOKING_ACTION_DEBOUNCE) return;
+		
+		lastRejectAttemptTime = Date.now();
 		bookingsMutationEpoch += 1;
 		rejectingBookingId = bookingId;
 		// Optimistically remove from list
@@ -518,13 +545,13 @@
 
 	// ─── Static marker HTML ───────────────────────────────────────────────────────
 	const SELF_MARKER_HTML = `
-		<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:#1e293b;border-radius:12px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,.25)">
-			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+		<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:#fffcc0;border-radius:12px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,.25)">
+			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-van-icon lucide-van"><path d="M13 6v5a1 1 0 0 0 1 1h6.102a1 1 0 0 1 .712.298l.898.91a1 1 0 0 1 .288.702V17a1 1 0 0 1-1 1h-3"/><path d="M5 18H3a1 1 0 0 1-1-1V8a2 2 0 0 1 2-2h12c1.1 0 2.1.8 2.4 1.8l1.176 4.2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>
 		</div>`;
 
 	const PASSENGER_MARKER_HTML = `
 		<div style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:#f59e0b;border-radius:50%;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,.2)">
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-round-icon lucide-user-round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
 		</div>`;
 </script>
 
