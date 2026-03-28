@@ -9,14 +9,12 @@ import {
 	assignDriverSchema,
 	unassignDriverVehicleSchema,
 	createRouteSchema,
-	updateRouteSchema,
-
+	updateRouteSchema
 } from '$lib/schema/admin';
 import { cooperativeSignUpSchema } from '$lib/schema/auth';
 import { form, getRequestEvent, query } from '$app/server';
 import { auth } from '$lib/better-auth/auth';
 import { generateId } from '$lib/utils/id';
-
 
 function requireAdmin() {
 	const { locals } = getRequestEvent();
@@ -137,12 +135,7 @@ export const updateDriver = form(updateDriverSchema, async (data) => {
 		const updated = await db
 			.update(driver)
 			.set(updateData)
-			.where(
-				and(
-					eq(driver.id, data.driverId),
-					eq(driver.cooperativeId, cooperativeData.id)
-				)
-			)
+			.where(and(eq(driver.id, data.driverId), eq(driver.cooperativeId, cooperativeData.id)))
 			.returning({ id: driver.id });
 
 		if (!updated.length) {
@@ -304,7 +297,10 @@ export const unassignVehicleFromDriver = form(unassignDriverVehicleSchema, async
 		if (error instanceof Error) {
 			console.error('[unassignVehicleFromDriver]', error);
 		}
-		return { success: false, error: 'An error occurred while unassigning the vehicle from the driver' };
+		return {
+			success: false,
+			error: 'An error occurred while unassigning the vehicle from the driver'
+		};
 	}
 });
 
@@ -426,7 +422,8 @@ export const createRoute = form(createRouteSchema, async (data) => {
 			originLongitude: data.originLongitude,
 			destinationLatitude: data.destinationLatitude,
 			destinationLongitude: data.destinationLongitude,
-			distance: data.distance 
+			distance: data.distance,
+			direction: data.direction,
 		});
 
 		return { success: true };
@@ -436,8 +433,7 @@ export const createRoute = form(createRouteSchema, async (data) => {
 			console.error('[createRoute]', error);
 		}
 		return { success: false, error: 'An error occurred while creating the route' };
-	}	
-
+	}
 });
 
 export const getRoutes = query(async () => {
@@ -453,7 +449,7 @@ export const getRoutes = query(async () => {
 		where: eq(route.cooperativeId, cooperativeData.id)
 	});
 	return routes;
-});	
+});
 
 export const deleteRoute = form(updateRouteSchema, async (data) => {
 	// Implementation for deleting a route
