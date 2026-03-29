@@ -11,15 +11,13 @@ services:
   server:
     build:
       context: .
-      args:
-        DATABASE_URL: ${DATABASE_URL}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       ORIGIN: ${ORIGIN:-http://localhost:3000}
+      GROQ_API_KEY: ${GROQ_API_KEY}
     ports:
       - 3000:3000
 

@@ -6,13 +6,11 @@
 
 # Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
 
-#syntax=docker/dockerfile:1
- 
 ARG BUN_VERSION=1.2.18
  
 ################################################################################
 # Use the official Bun image for all stages.
-FROM oven/bun:${BUN_VERSION}-alpine as base
+FROM oven/bun:${BUN_VERSION}-alpine AS base
  
 # Set working directory for all build stages.
 WORKDIR /usr/src/app
@@ -20,7 +18,7 @@ WORKDIR /usr/src/app
  
 ################################################################################
 # Create a stage for installing production dependencies.
-FROM base as deps
+FROM base AS deps
  
 # Download dependencies as a separate step to take advantage of Docker's caching.
 # Leverage a cache mount to /root/.bun to speed up subsequent builds.
@@ -34,11 +32,7 @@ RUN --mount=type=bind,source=package.json,target=package.json \
  
 ################################################################################
 # Create a stage for building the application.
-FROM base as build
- 
-# Accept build arguments for environment variables needed during build.
-ARG DATABASE_URL
-ARG BETTER_AUTH_SECRET
+FROM base AS build
  
 # Install all dependencies including devDependencies needed for the build.
 RUN --mount=type=bind,source=package.json,target=package.json \
@@ -49,18 +43,17 @@ RUN --mount=type=bind,source=package.json,target=package.json \
 # Copy the rest of the source files into the image.
 COPY . .
 
-# Set environment variables from build arguments.
-ENV DATABASE_URL=${DATABASE_URL}
-ENV BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-
 # Run the build script.
-RUN bun run build
+RUN DATABASE_URL=postgres://build:build@localhost:5432/builddb \
+    BETTER_AUTH_SECRET=build-only-secret \
+    BETTER_AUTH_URL=http://localhost:3000 \
+    bun run build
  
  
 ################################################################################
 # Create a new stage to run the application with minimal runtime dependencies
 # where the necessary files are copied from the build stage.
-FROM base as final
+FROM base AS final
  
 # Use production node environment by default.
 ENV NODE_ENV=production
