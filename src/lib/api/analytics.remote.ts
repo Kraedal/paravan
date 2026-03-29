@@ -2,6 +2,7 @@ import { db } from '$lib/server/db';
 import { cooperative, route, ride, driver, vehicle } from '$lib/server/db/schema';
 import { and, eq, gte, inArray } from 'drizzle-orm';
 import { query, getRequestEvent } from '$app/server';
+import { env } from '$env/dynamic/private';
 
 function requireAdmin() {
 	const { locals } = getRequestEvent();
@@ -24,6 +25,8 @@ const DEMAND_THRESHOLDS = {
 // Must sum to 1.0.
 // week[0] = oldest (4 weeks ago), week[3] = most recent (last week)
 const WMA_WEIGHTS = [0.1, 0.2, 0.3, 0.4] as const;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_TIMEOUT_MS = 8000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,6 +55,259 @@ function getWeekIndex(rideDate: Date, referenceDate: Date): number {
 	const diffMs = referenceDate.getTime() - rideDate.getTime();
 	// 0 = most recent week, 1 = two weeks ago, etc.
 	return Math.floor(diffMs / msPerWeek);
+}
+
+function extractJsonObject(content: string): string | null {
+	const trimmed = content.trim();
+	if (!trimmed) return null;
+
+	if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+		return trimmed;
+	}
+
+	const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i) ?? trimmed.match(/```\s*([\s\S]*?)```/i);
+	if (fenced?.[1]) return fenced[1].trim();
+
+	const firstBrace = trimmed.indexOf('{');
+	const lastBrace = trimmed.lastIndexOf('}');
+	if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+		return trimmed.slice(firstBrace, lastBrace + 1);
+	}
+
+	return null;
+}
+
+type GroqSuggestionItem = {
+	routeName: string;
+	day: string;
+	hourSlot: string;
+	suggestion: string;
+};
+
+type RagSlotSnippet = {
+	routeName: string;
+	day: string;
+	hourSlot: string;
+	rides: number;
+	avgFillRatio: number;
+	historicDemandLevel: 'high' | 'normal' | 'low';
+};
+
+function buildRagSnippets(
+	rides: Array<{
+		createdAt: Date;
+		availableSeats: number | null;
+		vehicle: { capacity: number } | null;
+		route: { name: string } | null;
+	}>
+): RagSlotSnippet[] {
+	const grouped = new Map<string, { routeName: string; day: string; hourSlot: string; fillRatios: number[] }>();
+
+	for (const r of rides) {
+		const date = new Date(r.createdAt);
+		const routeName = r.route?.name ?? 'Unknown Route';
+		const day = getDayLabel(date.getDay());
+		const hourSlot = getHourSlot(date);
+		const capacity = r.vehicle?.capacity ?? 12;
+		const fillRatio = 1 - (r.availableSeats ?? 0) / capacity;
+		const key = `${routeName}|${day}|${hourSlot}`;
+
+		if (!grouped.has(key)) {
+			grouped.set(key, { routeName, day, hourSlot, fillRatios: [] });
+		}
+		grouped.get(key)!.fillRatios.push(fillRatio);
+	}
+
+	const snippets: RagSlotSnippet[] = [];
+	for (const g of grouped.values()) {
+		if (g.fillRatios.length < 2) continue;
+		const avgFillRatio = g.fillRatios.reduce((a, b) => a + b, 0) / g.fillRatios.length;
+		snippets.push({
+			routeName: g.routeName,
+			day: g.day,
+			hourSlot: g.hourSlot,
+			rides: g.fillRatios.length,
+			avgFillRatio: Math.round(avgFillRatio * 100) / 100,
+			historicDemandLevel: classifyDemand(avgFillRatio)
+		});
+	}
+
+	return snippets;
+}
+
+function getRagContextForSlot(slot: DemandSlot, snippets: RagSlotSnippet[]): RagSlotSnippet[] {
+	const ranked = snippets
+		.filter((s) => !(s.routeName === slot.routeName && s.day === slot.day && s.hourSlot === slot.hourSlot))
+		.map((s) => {
+			let score = 0;
+			if (s.routeName === slot.routeName) score += 5;
+			if (s.day === slot.day) score += 3;
+			if (s.hourSlot === slot.hourSlot) score += 3;
+			score += Math.max(0, 2 - Math.abs(s.avgFillRatio - slot.avgFillRatio) * 4);
+			return { score, snippet: s };
+		})
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 3)
+		.map((x) => x.snippet);
+
+	return ranked;
+}
+
+function isSuggestionConsistent(slot: DemandSlot, suggestion: string): boolean {
+	const text = suggestion.toLowerCase();
+
+	const mentionsHighDemand = text.includes('high demand');
+	const mentionsLowDemand = text.includes('low demand');
+	const mentionsHighFill = text.includes('high fill ratio') || text.includes('high occupancy');
+	const mentionsLowFill = text.includes('low fill ratio') || text.includes('low occupancy');
+
+	if ((mentionsHighDemand && mentionsLowFill) || (mentionsLowDemand && mentionsHighFill)) {
+		return false;
+	}
+
+	const demand = slot.forecastedDemandLevel ?? slot.historicDemandLevel;
+	if (demand === 'high' && mentionsLowDemand) return false;
+	if (demand === 'low' && mentionsHighDemand) return false;
+
+	return true;
+}
+
+function parseGroqSuggestions(content: string): GroqSuggestionItem[] {
+	const json = extractJsonObject(content);
+	if (!json) return [];
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(json);
+	} catch {
+		return [];
+	}
+
+	const rawItems = Array.isArray(parsed)
+		? parsed
+		: parsed && typeof parsed === 'object' && Array.isArray((parsed as { suggestions?: unknown }).suggestions)
+			? (parsed as { suggestions: unknown[] }).suggestions
+			: [];
+
+	const normalized: GroqSuggestionItem[] = [];
+	for (const item of rawItems) {
+		if (!item || typeof item !== 'object') continue;
+		const candidate = item as Partial<GroqSuggestionItem>;
+		if (
+			typeof candidate.routeName !== 'string' ||
+			typeof candidate.day !== 'string' ||
+			typeof candidate.hourSlot !== 'string' ||
+			typeof candidate.suggestion !== 'string'
+		) {
+			continue;
+		}
+
+		const suggestion = candidate.suggestion.trim();
+		if (!suggestion) continue;
+
+		normalized.push({
+			routeName: candidate.routeName,
+			day: candidate.day,
+			hourSlot: candidate.hourSlot,
+			suggestion: suggestion.slice(0, 280)
+		});
+	}
+
+	return normalized;
+}
+
+async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: RagSlotSnippet[]): Promise<boolean> {
+	const apiKey = env.GROQ_API_KEY;
+	if (!apiKey) return false;
+
+	const candidates = patterns.filter((p) => p.suggestion && p.forecastedDemandLevel);
+	if (!candidates.length) return false;
+
+	const priority = (p: DemandSlot) => {
+		const demandWeight = p.forecastedDemandLevel === 'high' ? 3 : p.forecastedDemandLevel === 'normal' ? 2 : 1;
+		const confidenceWeight = p.forecastConfidence === 'high' ? 3 : p.forecastConfidence === 'medium' ? 2 : p.forecastConfidence === 'low' ? 1 : 0;
+		return demandWeight * 10 + confidenceWeight;
+	};
+
+	const topCandidates = [...candidates].sort((a, b) => priority(b) - priority(a)).slice(0, 10);
+	const fallbackByKey = new Map(
+		topCandidates.map((p) => [`${p.routeName}|${p.day}|${p.hourSlot}`, p.suggestion ?? ''])
+	);
+	const payload = topCandidates.map((p) => ({
+		routeName: p.routeName,
+		day: p.day,
+		hourSlot: p.hourSlot,
+		historicDemandLevel: p.historicDemandLevel,
+		forecastedDemandLevel: p.forecastedDemandLevel,
+		forecastConfidence: p.forecastConfidence,
+		totalRides: p.totalRides,
+		avgFillRatio: p.avgFillRatio,
+		retrievedContext: getRagContextForSlot(p, ragSnippets)
+	}));
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(GROQ_API_URL, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${apiKey}`
+			},
+			body: JSON.stringify({
+				model: env.GROQ_MODEL || 'llama-3.1-8b-instant',
+				temperature: 0.2,
+				messages: [
+					{
+						role: 'system',
+						content:
+							'You are an operations analyst for UV Express cooperatives. Produce concise, practical, one-sentence operational suggestions. Never contradict demand semantics: high demand implies high occupancy/high fill ratio, low demand implies low occupancy/low fill ratio. Return JSON only.'
+					},
+					{
+						role: 'user',
+						content: `Rewrite these suggestions for dispatch planning. Keep each suggestion <= 160 chars, direct and actionable. Do not mention both high demand and low fill ratio together. Do not mention both low demand and high fill ratio together. If demand is high, suggest adding capacity/frequency; if demand is low, suggest reducing frequency/downsizing. Return JSON object with key "suggestions" containing array of {routeName, day, hourSlot, suggestion}.\n\n${JSON.stringify(payload)}`
+					}
+				]
+			}),
+			signal: controller.signal
+		});
+
+		if (!response.ok) return false;
+
+		const data = (await response.json()) as {
+			choices?: Array<{ message?: { content?: string } }>;
+		};
+
+		const content = data.choices?.[0]?.message?.content;
+		if (!content) return false;
+
+		const aiSuggestions = parseGroqSuggestions(content);
+		if (!aiSuggestions.length) return false;
+
+		const byKey = new Map(aiSuggestions.map((s) => [`${s.routeName}|${s.day}|${s.hourSlot}`, s.suggestion]));
+		let appliedCount = 0;
+		for (const pattern of patterns) {
+			const key = `${pattern.routeName}|${pattern.day}|${pattern.hourSlot}`;
+			const aiText = byKey.get(key);
+			if (aiText) {
+				if (isSuggestionConsistent(pattern, aiText)) {
+					pattern.suggestion = aiText;
+					appliedCount += 1;
+				} else {
+					const fallback = fallbackByKey.get(key);
+					if (fallback) pattern.suggestion = fallback;
+				}
+			}
+		}
+
+		return appliedCount > 0;
+	} catch {
+		// Keep deterministic fallback suggestions when Groq is unavailable.
+		return false;
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 /**
@@ -121,7 +377,7 @@ export const getDemandPatterns = query(async () => {
 		where: eq(route.cooperativeId, cooperativeData.id)
 	});
 
-	if (!coopRoutes.length) return { patterns: [], summary: null };
+	if (!coopRoutes.length) return { patterns: [], summary: null, aiAssisted: false };
 
 	const cooperativeRouteIds = coopRoutes.map((r) => r.id);
 
@@ -139,7 +395,19 @@ export const getDemandPatterns = query(async () => {
 		with: { vehicle: true, route: true }
 	});
 
-	if (!recentRides.length) return { patterns: [], summary: null };
+	if (!recentRides.length) return { patterns: [], summary: null, aiAssisted: false };
+
+	const ninetyDaysAgo = new Date();
+	ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+	const historicalRides = await db.query.ride.findMany({
+		where: and(
+			inArray(ride.routeId, cooperativeRouteIds),
+			eq(ride.status, 'completed'),
+			gte(ride.createdAt, ninetyDaysAgo)
+		),
+		with: { vehicle: true, route: true }
+	});
+	const ragSnippets = buildRagSnippets(historicalRides);
 
 	// ---------------------------------------------------------------------------
 	// Step 1 — DESCRIPTIVE: Group rides into route+day+hour slots per week
@@ -191,7 +459,8 @@ export const getDemandPatterns = query(async () => {
 		});
 
 		// Overall descriptive average across all rides in this slot
-		const allFillRatios = (fillRatios.flat().filter(Boolean)) as number[];
+		// Keep 0 fill ratios (empty rides) so totalRides and averages stay accurate.
+		const allFillRatios = fillRatios.flat().filter((ratio): ratio is number => ratio !== undefined);
 		const totalRides = allFillRatios.length;
 		const avgFillRatio = allFillRatios.reduce((a, b) => a + b, 0) / totalRides;
 		const historicDemandLevel = classifyDemand(avgFillRatio);
@@ -238,6 +507,9 @@ export const getDemandPatterns = query(async () => {
 
 	patterns.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day));
 
+	// Optional AI refinement of prescriptive suggestions.
+	const aiAssisted = await enhanceSuggestionsWithGroq(patterns, ragSnippets);
+
 	// ---------------------------------------------------------------------------
 	// Summary
 	// ---------------------------------------------------------------------------
@@ -250,7 +522,7 @@ export const getDemandPatterns = query(async () => {
 		ridesAnalyzed: recentRides.length
 	};
 
-	return { patterns, summary };
+	return { patterns, summary, aiAssisted };
 });
 
 // ---------------------------------------------------------------------------
