@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { SvelteMap } from 'svelte/reactivity';
 	import type { DemandSlot } from '$lib/api/analytics.remote';
 	import { getCooperativeDashboard,  } from '$lib/api/admin.remote';
 	import { getDemandPatterns, getAnalytics } from '$lib/api/analytics.remote';
@@ -9,7 +8,6 @@
 	import Alerts from '$lib/components/dashboard/Alerts.svelte';
 	import TodaysRides from '$lib/components/dashboard/TodaysRides.svelte';
 	import DirectionSplit from '$lib/components/dashboard/DirectionSplit.svelte';
-	import FillRatioChart from '$lib/components/dashboard/FillRatioChart.svelte';
 	import DemandHeatmap from '$lib/components/dashboard/DemandHeatmap.svelte';
 	import DemandForecast from '$lib/components/dashboard/DemandForecast.svelte';
 	import Suggestions from '$lib/components/dashboard/Suggestions.svelte';
@@ -20,24 +18,6 @@
 	const demand = getDemandPatterns();
 
 	// ─── Derived chart data ───────────────────────────────────────────────────────
-
-	// Fill ratio bar chart data
-	let fillRatioData = $derived.by(() => {
-		if (!demand.ready || !demand.current?.patterns) return [];
-		const byRoute = new SvelteMap<string, { historic: number[]; forecast: number[] }>();
-		for (const p of demand.current.patterns as DemandSlot[]) {
-			if (!byRoute.has(p.routeName)) byRoute.set(p.routeName, { historic: [], forecast: [] });
-			const entry = byRoute.get(p.routeName)!;
-			entry.historic.push(p.avgFillRatio);
-			if (p.forecastedFillRatio != null) entry.forecast.push(p.forecastedFillRatio);
-		}
-		return Array.from(byRoute.entries()).map(([name, { historic, forecast }]) => ({
-			route: name.length > 22 ? name.slice(0, 20) + '…' : name,
-			fullRoute: name,
-			historic: historic.reduce((a, b) => a + b, 0) / historic.length,
-			forecast: forecast.length ? forecast.reduce((a, b) => a + b, 0) / forecast.length : null
-		}));
-	});
 
 	// Data for heatmap
 	let heatmapData = $derived.by(() => {
@@ -66,6 +46,7 @@
 	const loading = $derived(dashboard.loading && !dashboard.ready);
 	const error = $derived(!!(dashboard.error || analytics.error));
 	const ready = $derived(!!(dashboard.ready && analytics.ready));
+	let showAiInfo = $state(false);
 </script>
 
 <!-- ─── Loading ──────────────────────────────────────────────────────────────── -->
@@ -97,15 +78,33 @@
 				{new Date().toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
 			</p>
 		</div>
-		{#if analytics.current.today.ongoingRides > 0}
-			<div class="flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-full ring-1 ring-emerald-100">
-				<span class="relative flex h-1.5 w-1.5">
-					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-					<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-				</span>
-				{analytics.current.today.ongoingRides} active ride{analytics.current.today.ongoingRides !== 1 ? 's' : ''}
+		<div class="flex items-center gap-2">
+			<div class="relative">
+				<button
+					type="button"
+					onclick={() => (showAiInfo = !showAiInfo)}
+					class={`rounded-full px-2.5 py-1.5 text-xs font-medium ring-1 transition-colors ${demand.current?.aiAssisted ? 'bg-violet-50 text-violet-600 ring-violet-100 hover:bg-violet-100' : 'bg-slate-100 text-slate-500 ring-slate-200 hover:bg-slate-200'}`}
+				>
+					{demand.current?.aiAssisted ? 'AI-assisted insights' : 'Rules-only insights'}
+				</button>
+				{#if showAiInfo}
+					<div class="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-2 text-[11px] leading-snug text-slate-600 shadow-lg">
+						{demand.current?.aiAssisted
+							? 'Generated using Groq + fallback rules.'
+							: 'Using fallback rules only (Groq was not used for this response).'}
+					</div>
+				{/if}
 			</div>
-		{/if}
+			{#if analytics.current.today.ongoingRides > 0}
+				<div class="flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-full ring-1 ring-emerald-100">
+					<span class="relative flex h-1.5 w-1.5">
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+					</span>
+					{analytics.current.today.ongoingRides} active ride{analytics.current.today.ongoingRides !== 1 ? 's' : ''}
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<!-- KPI Cards -->
@@ -129,15 +128,13 @@
 			completedRides={analytics.current.today.completedRides}
 			ongoingRides={analytics.current.today.ongoingRides}
 			avgDurationMinutes={analytics.current.today.avgDurationMinutes}
+			aiAssisted={demand.current?.aiAssisted ?? false}
 		/>
 		<DirectionSplit 
 			northbound={analytics.current.today.directionSplit.northbound}
 			southbound={analytics.current.today.directionSplit.southbound}
 		/>
 	</div>
-
-	<!-- Fill ratio chart -->
-	<!-- <FillRatioChart data={fillRatioData} /> -->
 
 	<!-- Demand heatmap -->
 	<DemandHeatmap patterns={heatmapData} />
@@ -149,6 +146,7 @@
 				<DemandForecast 
 					patterns={demand.current.patterns as DemandSlot[]}
 					summary={demand.current.summary}
+					// aiAssisted={demand.current.aiAssisted ?? false}
 				/>
 			</div>
 			<Suggestions 
@@ -161,9 +159,9 @@
 					forecastConfidence: s.forecastConfidence
 				}))}
 				summary={demand.current.summary}
+				aiAssisted={demand.current.aiAssisted ?? false}
 			/>
 		</div>
 	{/if}
-
 </div>
 {/if}

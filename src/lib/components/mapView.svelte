@@ -22,8 +22,6 @@
 		marker = center as [number, number],
 		destination = null as [number, number] | null,
 		useOsrm = false,
-		markerLabel = 'You are here',
-		markerHtml = null as string | null,
 		destinationLabel = 'Destination',
 		height = '420px',
 		liveMarker = null as [number, number] | null,
@@ -40,8 +38,6 @@
 		marker?: [number, number];
 		destination?: [number, number] | null;
 		useOsrm?: boolean;
-		markerLabel?: string;
-		markerHtml?: string | null;
 		destinationLabel?: string;
 		height?: string;
 		liveMarker?: [number, number] | null;
@@ -58,7 +54,7 @@
 	let map: Leaflet.Map | null = null;
 	let L: typeof import('leaflet') | null = null;
 
-	let selfMarkerLayer: Leaflet.Marker | null = null;
+	// let selfMarkerLayer: Leaflet.Marker | null = null;
 	let destinationMarkerLayer: Leaflet.Marker | null = null;
 	let routeLine: Leaflet.Polyline | null = null;
 	let liveMarkerLayer: Leaflet.Marker | null = null;
@@ -82,7 +78,6 @@
 				attribution: '&copy; OpenStreetMap contributors'
 			}).addTo(map);
 
-			renderSelfMarker();
 			renderDestinationMarker();
 			renderLiveMarker();
 			renderOverlayMarkers();
@@ -99,7 +94,12 @@
 	$effect(() => {
 		void [marker, destination, useOsrm, center, zoom];
 		if (!map || !L) return;
-		renderSelfMarker();
+		
+		// Pan to marker if not following live marker and no destination
+		if (!followLiveMarker && !destination) {
+			map.setView(marker, map.getZoom());
+		}
+		
 		renderDestinationMarker();
 		void renderRoute();
 	});
@@ -116,27 +116,27 @@
 		renderOverlayMarkers();
 	});
 
-	function renderSelfMarker() {
-		if (!map || !L) return;
+	// function renderSelfMarker() {
+	// 	if (!map || !L) return;
 
-		if (selfMarkerLayer) {
-			selfMarkerLayer.setLatLng(marker);
-			selfMarkerLayer.bindPopup(markerLabel);
-		} else {
-			selfMarkerLayer = L.marker(marker, {
-				icon: markerHtml
-					? L.divIcon({ className: '', html: markerHtml, iconSize: [20, 20], iconAnchor: [10, 10] })
-					: new L.Icon.Default()
-			})
-				.addTo(map)
-				.bindPopup(markerLabel);
-		}
+	// 	if (selfMarkerLayer) {
+	// 		selfMarkerLayer.setLatLng(marker);
+	// 		selfMarkerLayer.bindPopup(markerLabel);
+	// 	} else {
+	// 		selfMarkerLayer = L.marker(marker, {
+	// 			icon: markerHtml
+	// 				? L.divIcon({ className: '', html: markerHtml, iconSize: [20, 20], iconAnchor: [10, 10] })
+	// 				: new L.Icon.Default()
+	// 		})
+	// 			.addTo(map)
+	// 			.bindPopup(markerLabel);
+	// 	}
 
-		// Only pan to self marker if not following a live marker and no route is shown
-		if (!followLiveMarker && !destination) {
-			map.setView(marker, map.getZoom());
-		}
-	}
+	// 	// Only pan to self marker if not following a live marker and no route is shown
+	// 	if (!followLiveMarker && !destination) {
+	// 		map.setView(marker, map.getZoom());
+	// 	}
+	// }
 
 	function renderDestinationMarker() {
 		if (!map || !L) return;

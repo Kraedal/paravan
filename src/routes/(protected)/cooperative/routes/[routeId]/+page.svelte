@@ -76,7 +76,6 @@
 			marker={[selectedRoute.originLatitude, selectedRoute.originLongitude]}
 			destination={[selectedRoute.destinationLatitude, selectedRoute.destinationLongitude]}
 			useOsrm={true}
-			markerLabel="Origin"
 			destinationLabel="Destination"
 			height="420px"
 		/>

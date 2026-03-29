@@ -43,6 +43,10 @@ export const updateVehicleSchema = createVehicleSchema.partial().extend({
 	vehicleId: z.string()
 });
 
+export const deleteVehicleSchema = z.object({
+	vehicleId: z.string()
+});
+
 // Create, update, delete routes schemas
 
 export const createRouteSchema = z.object({

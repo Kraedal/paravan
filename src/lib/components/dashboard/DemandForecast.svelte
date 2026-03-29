@@ -21,9 +21,11 @@
 	interface Props {
 		patterns?: DemandSlot[];
 		summary?: DemandSummary;
+		// aiAssisted?: boolean;
 	}
 
 	let { patterns = [], summary }: Props = $props();
+	// let showAiInfo = $state(false);
 
 	const displayPatterns = $derived(patterns.slice(0, 8));
 </script>
@@ -36,11 +38,29 @@
 				<p class="text-xs text-slate-400 mt-1">{summary.ridesAnalyzed} rides · last 28 days</p>
 			{/if}
 		</div>
-		{#if summary && summary.forecastedHighSlots > 0}
-			<span class="text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-full ring-1 ring-red-100 shrink-0">
-				{summary.forecastedHighSlots} high-demand slot{summary.forecastedHighSlots !== 1 ? 's' : ''}
-			</span>
-		{/if}
+		<div class="flex items-center gap-2">
+			<!-- <div class="relative">
+				<button
+					type="button"
+					onclick={() => (showAiInfo = !showAiInfo)}
+					class={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 transition-colors ${aiAssisted ? 'bg-violet-50 text-violet-600 ring-violet-100 hover:bg-violet-100' : 'bg-slate-100 text-slate-500 ring-slate-200 hover:bg-slate-200'}`}
+				>
+					{aiAssisted ? 'AI-assisted' : 'Rules-only'}
+				</button>
+				{#if showAiInfo}
+					<div class="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 text-[11px] leading-snug text-slate-600 shadow-lg">
+						{aiAssisted
+							? 'Generated using Groq + fallback rules.'
+							: 'Using fallback rules only (Groq was not used for this response).'}
+					</div>
+				{/if}
+			</div> -->
+			{#if summary && summary.forecastedHighSlots > 0}
+				<span class="text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-full ring-1 ring-red-100 shrink-0">
+					{summary.forecastedHighSlots} high-demand slot{summary.forecastedHighSlots !== 1 ? 's' : ''}
+				</span>
+			{/if}
+		</div>
 	</div>
 
 	{#if patterns.length > 0}

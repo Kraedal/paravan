@@ -18,13 +18,33 @@
 	interface Props {
 		suggestions?: Suggestion[];
 		summary?: DemandSummary;
+		aiAssisted?: boolean;
 	}
 
-	let { suggestions = [], summary }: Props = $props();
+	let { suggestions = [], summary, aiAssisted = false }: Props = $props();
+	let showAiInfo = $state(false);
 </script>
 
 <div class="bg-white rounded-xl border border-slate-100 p-4 lg:p-5">
-	<h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Suggestions</h2>
+	<div class="mb-4 flex items-center justify-between gap-2">
+		<h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Suggestions</h2>
+		<div class="relative">
+			<button
+				type="button"
+				onclick={() => (showAiInfo = !showAiInfo)}
+				class={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 transition-colors ${aiAssisted ? 'bg-violet-50 text-violet-600 ring-violet-100 hover:bg-violet-100' : 'bg-slate-100 text-slate-500 ring-slate-200 hover:bg-slate-200'}`}
+			>
+				{aiAssisted ? 'AI-assisted' : 'Rules-only'}
+			</button>
+			{#if showAiInfo}
+				<div class="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 text-[11px] leading-snug text-slate-600 shadow-lg">
+					{aiAssisted
+						? 'Generated using Groq + fallback rules.'
+						: 'Using fallback rules only (Groq was not used for this response).'}
+				</div>
+			{/if}
+		</div>
+	</div>
 
 	{#if suggestions.length === 0}
 		<div class="flex flex-col items-center justify-center py-8 gap-2">
