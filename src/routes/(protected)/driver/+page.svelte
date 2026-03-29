@@ -3,10 +3,9 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import MapView from '$lib/components/mapView.svelte';
 	import {
-		getDriverProfile,
 		getCooperativeRoutes,
-		getOngoingRide,
-		getBookings,
+		getDriverBootstrap,
+		getDriverLiveState,
 		startRide,
 		endRide,
 		acceptBooking,
@@ -71,10 +70,9 @@
 	type PageState = 'loading' | 'offline' | 'driving';
 
 	// ─── Queries (SvelteKit $app/server query handles) ────────────────────────────
-	const profileQuery = getDriverProfile();
 	const routesQuery = getCooperativeRoutes();
-	const rideQuery = getOngoingRide();
-	const bookingsQuery = getBookings();
+	const bootstrapQuery = getDriverBootstrap();
+	const liveStateQuery = getDriverLiveState();
 
 	// ─── Page State ───────────────────────────────────────────────────────────────
 	let pageState: PageState = $state('loading');
@@ -84,7 +82,7 @@
 	let routes: Route[] = $state([]);
 	let errorMsg: string = $state('');
 	let endRidePayloadId: string = $state('');
-	let bookingsRequestSeq = 0;
+	let liveStateRequestSeq = 0;
 	let bookingsMutationEpoch = 0;
 	let lastSeenAcceptResult: unknown = null;
 	let lastSeenCompleteResult: unknown = null;
@@ -128,8 +126,8 @@
 	let lastCompleteAttemptTime: number = 0;
 	let lastAcceptAttemptTime: number = 0;
 	let lastRejectAttemptTime: number = 0;
-	const BOOKING_ACTION_DEBOUNCE: number = 500;
-	const COMPLETE_DEBOUNCE: number = 500;
+	const BOOKING_ACTION_DEBOUNCE = 500;
+	const COMPLETE_DEBOUNCE = 500;
 
 	// Timers
 	let locationWatcher: number | null = null;
@@ -154,10 +152,9 @@
 	});
 
 	async function init() {
-		await refreshCore();
+		await refreshBootstrap();
 		if (ongoingRide) {
 			pageState = 'driving';
-			await loadBookings();
 			startPoll();
 			startWatch();
 		} else {
@@ -165,21 +162,24 @@
 		}
 	}
 
-	async function refreshCore() {
+	async function refreshBootstrap() {
 		try {
-			await Promise.all([profileQuery.refresh(), rideQuery.refresh()]);
-			profile = (profileQuery.current as DriverProfile | null) ?? null;
+			await bootstrapQuery.refresh();
+			const snapshot = bootstrapQuery.current as {
+				profile: DriverProfile | null;
+				ongoingRide: OngoingRide;
+				bookings: Booking[];
+			};
 
-			// If driver is offline, never show a ride
+			profile = snapshot.profile;
+			bookings = snapshot.bookings ?? [];
+
 			if (profile && !profile.isAvailable) {
 				ongoingRide = null;
 			} else {
-				// Prevent stale queries from overwriting a recently-ended ride
 				const timeSinceRideEnd = Date.now() - lastRideEndTime;
-				if (timeSinceRideEnd < 3000 && ongoingRide === null) {
-					// Keep ride cleared for 3 seconds after end to avoid race conditions
-				} else {
-					ongoingRide = (rideQuery.current as OngoingRide) ?? null;
+				if (!(timeSinceRideEnd < 3000 && ongoingRide === null)) {
+					ongoingRide = snapshot.ongoingRide ?? null;
 				}
 			}
 
@@ -191,33 +191,36 @@
 		}
 	}
 
-	async function loadBookings() {
+	async function refreshLiveState() {
 		try {
-			const requestSeq = ++bookingsRequestSeq;
+			const requestSeq = ++liveStateRequestSeq;
 			const mutationEpochAtStart = bookingsMutationEpoch;
-			await Promise.all([bookingsQuery.refresh(), rideQuery.refresh()]);
-			if (requestSeq !== bookingsRequestSeq) return;
+			await liveStateQuery.refresh();
+			if (requestSeq !== liveStateRequestSeq) return;
 			if (mutationEpochAtStart !== bookingsMutationEpoch) return;
-			bookings = (bookingsQuery.current as Booking[] | undefined) ?? [];
-			
-			// Only update ride if not in the stale period after ride end
+
+			const snapshot = liveStateQuery.current as {
+				ongoingRide: OngoingRide;
+				bookings: Booking[];
+			};
+			bookings = snapshot.bookings ?? [];
+
 			const timeSinceRideEnd = Date.now() - lastRideEndTime;
 			if (!(timeSinceRideEnd < 3000 && ongoingRide === null)) {
-				ongoingRide = (rideQuery.current as OngoingRide) ?? null;
+				ongoingRide = snapshot.ongoingRide ?? null;
 			}
 		} catch {
 			/* silent poll failure */
 		}
 	}
 
-	// ─── Polling ──────────────────────────────────────────────────────────────────
 	function startPoll() {
 		if (pollInterval) return;
 		pollInterval = setInterval(async () => {
 			if (pageState !== 'driving') return;
 			if (acceptingBookingId || acceptBooking.pending > 0) return;
 			if (completingBookingId || completeBooking.pending > 0) return;
-			await loadBookings();
+			await refreshLiveState();
 		}, 5000);
 	}
 
@@ -263,6 +266,7 @@
 			locationWatcher = null;
 		}
 	}
+
 
 	// ─── Action handlers ──────────────────────────────────────────────────────────
 	function handleToggleAvailability() {
@@ -373,7 +377,7 @@
 		rejectForm.requestSubmit();
 	}
 
-	// ─── Form result effects ──────────────────────────────────────────────────────
+	// ─── Form result effects ──────────────────────────────────────────────────────────
 	$effect(() => {
 		const r = toggleDriverAvailability.result as {
 			success?: boolean;
@@ -383,7 +387,6 @@
 		if (!r) return;
 		if (r.success) {
 			void (async () => {
-				// When going offline, immediately clear ride state to prevent stale data
 				if (r.isAvailable === false) {
 					ongoingRide = null;
 					bookings = [];
@@ -391,9 +394,9 @@
 					stopPoll();
 					stopWatch();
 					pageState = 'offline';
-					lastRideEndTime = Date.now();
+					lastRideEndTime = Date.now();  // Stale ride-end protection: ignore queries for 3s
 				}
-				await refreshCore();
+				await refreshBootstrap();
 				if (r.isAvailable === true) {
 					routes = [];
 					showStartSheet = false;
@@ -410,9 +413,8 @@
 		if (r.success) {
 			showEndRideModal = false;
 			void (async () => {
-				await refreshCore();
+				await refreshBootstrap();
 				pageState = 'driving';
-				await loadBookings();
 				showStartSheet = false;
 				startPoll();
 				startWatch();
@@ -439,13 +441,12 @@
 			stopPoll();
 			stopWatch();
 			pageState = 'offline';
-			// Clear all form state to prevent stale data on page reload
 			startVehicleId = '';
 			startRouteId = '';
 			selectedRouteId = '';
-			lastRideEndTime = Date.now();
+			lastRideEndTime = Date.now();  // Stale ride-end protection: ignore queries for 3s
 			void (async () => {
-				await refreshCore();
+				await refreshBootstrap();
 			})();
 		} else if (r.error) {
 			showEndRideModal = false;
@@ -459,7 +460,7 @@
 		const rr = rejectBooking.result as { success?: boolean; error?: string } | null;
 
 		if (ar?.success || cr?.success || rr?.success) {
-			void loadBookings();
+			void refreshLiveState();
 		}
 
 		if (ar && ar !== lastSeenAcceptResult) {
@@ -469,7 +470,7 @@
 		if (ar?.error) {
 			errorMsg = ar.error;
 			acceptingBookingId = null;
-			void loadBookings();
+			void refreshLiveState();
 		}
 
 		if (cr && cr !== lastSeenCompleteResult) {
@@ -479,7 +480,7 @@
 		if (cr?.error) {
 			errorMsg = cr.error;
 			completingBookingId = null;
-			void loadBookings();
+			void refreshLiveState();
 		}
 
 		if (rr && rr !== lastSeenRejectResult) {
@@ -489,7 +490,7 @@
 		if (rr?.error) {
 			errorMsg = rr.error;
 			rejectingBookingId = null;
-			void loadBookings();
+			void refreshLiveState();
 		}
 	});
 
@@ -545,8 +546,8 @@
 
 	// ─── Static marker HTML ───────────────────────────────────────────────────────
 	const SELF_MARKER_HTML = `
-		<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:#fffcc0;border-radius:12px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,.25)">
-			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-van-icon lucide-van"><path d="M13 6v5a1 1 0 0 0 1 1h6.102a1 1 0 0 1 .712.298l.898.91a1 1 0 0 1 .288.702V17a1 1 0 0 1-1 1h-3"/><path d="M5 18H3a1 1 0 0 1-1-1V8a2 2 0 0 1 2-2h12c1.1 0 2.1.8 2.4 1.8l1.176 4.2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>
+		<div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:#191970;border-radius:12px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,.25)">
+			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-car-taxi-front-icon lucide-car-taxi-front"><path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/></svg>		
 		</div>`;
 
 	const PASSENGER_MARKER_HTML = `
@@ -594,7 +595,6 @@
 			marker={mapMarker}
 			destination={routeDestination}
 			useOsrm={pageState === 'driving' && routeDestination !== null}
-			markerLabel={driverLocation ? 'You are here' : 'Route origin'}
 			destinationLabel="Route destination"
 			liveMarker={driverLocation}
 			liveMarkerLabel="You are here"

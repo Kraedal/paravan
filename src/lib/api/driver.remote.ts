@@ -37,6 +37,42 @@ async function requireDriver() {
 	return driverProfile;
 }
 
+async function fetchCurrentRide(driverId: string) {
+	const ongoingRide = await db.query.ride.findFirst({
+		where: (r, { and, eq }) => and(eq(r.driverId, driverId), eq(r.status, 'ongoing')),
+		with: {
+			route: true,
+			vehicle: true
+		}
+	});
+	if (!ongoingRide) return null;
+
+	const totalSeats = ongoingRide.vehicle?.capacity ?? 0;
+	const occupiedSeats = Math.max(0, totalSeats - ongoingRide.availableSeats);
+
+	return {
+		...ongoingRide,
+		totalSeats,
+		occupiedSeats
+	};
+}
+
+async function fetchRideBookings(rideId: string | null) {
+	if (!rideId) return [];
+
+	const bookings = await db.query.booking.findMany({
+		where: (b, { eq }) => eq(b.rideId, rideId),
+		with: {
+			passenger: {
+				with: {
+					user: true
+				}
+			}
+		}
+	});
+	return bookings;
+}
+
 export const getDriverProfile = query(async () => {
 	const driverProfile = await requireDriver();
 	return driverProfile;
@@ -190,46 +226,51 @@ export const endRide = form(endRideSchema, async (data) => {
 
 export const getOngoingRide = query(async () => {
 	const driverProfile = await requireDriver();
-
-	const ongoingRide = await db.query.ride.findFirst({
-		where: (r, { and, eq }) => and(eq(r.driverId, driverProfile.id), eq(r.status, 'ongoing')),
-		with: {
-			route: true,
-			vehicle: true
-		}
-	});
-	if (!ongoingRide) return null;
-
-	const totalSeats = ongoingRide.vehicle?.capacity ?? 0;
-	const occupiedSeats = Math.max(0, totalSeats - ongoingRide.availableSeats);
-
-	return {
-		...ongoingRide,
-		totalSeats,
-		occupiedSeats
-	};
+	return fetchCurrentRide(driverProfile.id);
 });
 
 export const getBookings = query(async () => {
 	const driverProfile = await requireDriver();
+	const currentRide = await fetchCurrentRide(driverProfile.id);
+	return fetchRideBookings(currentRide?.id ?? null);
+});
 
-	const currentRide = await db.query.ride.findFirst({
-		where: (ride, { eq, and }) =>
-			and(eq(ride.driverId, driverProfile.id), eq(ride.status, 'ongoing'))
-	});
-	if (!currentRide) return [];
+export const getDriverBootstrap = query(async () => {
+	const driverProfile = await requireDriver();
+	if (!driverProfile.isAvailable) {
+		return {
+			profile: driverProfile,
+			ongoingRide: null,
+			bookings: []
+		};
+	}
 
-	const bookings = await db.query.booking.findMany({
-		where: (b, { eq }) => eq(b.rideId, currentRide.id),
-		with: {
-			passenger: {
-				with: {
-					user: true
-				}
-			}
-		}
-	});
-	return bookings;
+	const ongoingRide = await fetchCurrentRide(driverProfile.id);
+	const bookings = await fetchRideBookings(ongoingRide?.id ?? null);
+
+	return {
+		profile: driverProfile,
+		ongoingRide,
+		bookings
+	};
+});
+
+export const getDriverLiveState = query(async () => {
+	const driverProfile = await requireDriver();
+	if (!driverProfile.isAvailable) {
+		return {
+			ongoingRide: null,
+			bookings: []
+		};
+	}
+
+	const ongoingRide = await fetchCurrentRide(driverProfile.id);
+	const bookings = await fetchRideBookings(ongoingRide?.id ?? null);
+
+	return {
+		ongoingRide,
+		bookings
+	};
 });
 
 export const acceptBooking = form(bookingActionSchema, async (data) => {

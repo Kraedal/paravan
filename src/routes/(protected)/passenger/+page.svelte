@@ -7,11 +7,10 @@
 	import {
 		setReady,
 		setNotReady,
-		getNearbyDrivers,
+		getPassengerBootstrap,
+		getPassengerLiveState,
 		requestBooking,
 		cancelBooking,
-		getActiveBooking,
-		getPassengerProfile,
 		alightSelf
 	} from '$lib/api/passenger.remote';
 	import { MapPin, Van } from '@lucide/svelte';
@@ -71,7 +70,7 @@
 	let cancelBookingId: string = $state('');
 	let alightingBookingId: string | null = $state(null);
 	let mapCenter: [number, number] = $state([14.5995, 120.9842]);
-	let activeBookingRequestSeq = 0;
+	let liveStateRequestSeq = 0;
 	let bookingMutationEpoch = 0;
 	let lastAlightAttemptTime = 0;
 	let lastSeenSetReadyResult: unknown = null;
@@ -86,9 +85,8 @@
 	let cancelBookingFormEl: HTMLFormElement;
 	let alightSelfFormEl: HTMLFormElement;
 
-	const passengerProfileQuery = getPassengerProfile();
-	const nearbyDriversQuery = getNearbyDrivers();
-	const activeBookingQuery = getActiveBooking();
+	const bootstrapQuery = getPassengerBootstrap();
+	const liveStateQuery = getPassengerLiveState();
 
 	onMount(() => {
 		void initializePage();
@@ -96,31 +94,39 @@
 
 	async function initializePage() {
 		try {
-			await Promise.all([activeBookingQuery.refresh(), passengerProfileQuery.refresh()]);
+			await bootstrapQuery.refresh();
+			const bootstrap = bootstrapQuery.current as {
+				profile: {
+					isWaiting: boolean;
+					latitude: number | null;
+					longitude: number | null;
+				};
+				activeBooking: ActiveBooking;
+				nearbyDrivers: Driver[];
+			};
 
-			const booking = activeBookingQuery.current as ActiveBooking;
-			if (booking) {
-				activeBooking = booking;
-				pageState = booking.status === 'onboard' ? 'onboard' : 'pending';
+			if (bootstrap.profile.latitude != null && bootstrap.profile.longitude != null) {
+				passengerLocation = [bootstrap.profile.latitude, bootstrap.profile.longitude];
+				mapCenter = passengerLocation;
+			}
+
+			if (bootstrap.activeBooking) {
+				activeBooking = bootstrap.activeBooking;
+				pageState = bootstrap.activeBooking.status === 'onboard' ? 'onboard' : 'pending';
 				startLocationWatch();
 				startPolling();
 				return;
 			}
 
-			const profile = passengerProfileQuery.current as {
-				isWaiting: boolean;
-				latitude: number | null;
-				longitude: number | null;
-			} | null;
-
-			if (profile?.isWaiting && profile.latitude != null && profile.longitude != null) {
-				passengerLocation = [profile.latitude, profile.longitude];
-				mapCenter = passengerLocation;
+			if (bootstrap.profile.isWaiting) {
+				nearbyDrivers = bootstrap.nearbyDrivers;
 				pageState = 'waiting';
 				startLocationWatch();
-				await refreshDrivers();
 				startPolling();
+				return;
 			}
+
+			pageState = 'idle';
 		} catch {
 			pageState = 'idle';
 		}
@@ -151,7 +157,7 @@
 			if (passengerLocation) mapCenter = passengerLocation;
 			pageState = 'waiting';
 			startLocationWatch();
-			void refreshDrivers();
+			void refreshLiveState();
 			startPolling();
 			pendingLocationPayload = null;
 			return;
@@ -198,7 +204,7 @@
 			bookingMutationEpoch += 1;
 			showDriverSheet = false;
 			pageState = 'pending';
-			void checkBookingStatus();
+			void refreshLiveState();
 			startPolling();
 			bookingRideId = '';
 			return;
@@ -220,7 +226,7 @@
 			bookingMutationEpoch += 1;
 			activeBooking = null;
 			pageState = 'waiting';
-			void refreshDrivers();
+			void refreshLiveState();
 			cancelBookingId = '';
 			return;
 		}
@@ -242,7 +248,7 @@
 			activeBooking = null;
 			alightingBookingId = null;
 			// Refresh booking data then reload with longer delay to ensure database persistence
-			void activeBookingQuery.refresh().then(() => {
+			void refreshLiveState().then(() => {
 				setTimeout(() => {
 					window.location.reload();
 				}, 1000);
@@ -254,17 +260,7 @@
 			alert(result.error);
 			alightingBookingId = null;
 			// Refresh booking state to sync with server and recover UI state
-			void activeBookingQuery.refresh().then(() => {
-				const updatedBooking = (activeBookingQuery.current as ActiveBooking) ?? null;
-				if (updatedBooking) {
-					activeBooking = updatedBooking;
-					pageState = updatedBooking.status === 'onboard' ? 'onboard' : 'pending';
-				} else {
-					// Booking is no longer active, reset to waiting
-					pageState = 'waiting';
-					activeBooking = null;
-				}
-			});
+			void refreshLiveState();
 		}
 	});
 
@@ -324,10 +320,33 @@
 		setNotReadyFormEl.requestSubmit();
 	}
 
-	async function refreshDrivers() {
+	async function refreshLiveState() {
 		try {
-			await nearbyDriversQuery.refresh();
-			nearbyDrivers = (nearbyDriversQuery.current as Driver[] | undefined) ?? [];
+			const requestSeq = ++liveStateRequestSeq;
+			const mutationEpochAtStart = bookingMutationEpoch;
+			await liveStateQuery.refresh();
+
+			if (requestSeq !== liveStateRequestSeq) return;
+			if (mutationEpochAtStart !== bookingMutationEpoch) return;
+
+			const snapshot = liveStateQuery.current as {
+				activeBooking: ActiveBooking;
+				nearbyDrivers: Driver[];
+			};
+
+			nearbyDrivers = snapshot.nearbyDrivers ?? [];
+			const booking = snapshot.activeBooking ?? null;
+
+			if (booking) {
+				activeBooking = booking;
+				pageState = booking.status === 'onboard' ? 'onboard' : 'pending';
+				return;
+			}
+
+			activeBooking = null;
+			if (pageState === 'pending' || pageState === 'onboard') {
+				pageState = 'waiting';
+			}
 		} catch {
 			// silently fail on poll
 		}
@@ -336,8 +355,9 @@
 	function startPolling() {
 		if (pollInterval) return;
 		pollInterval = setInterval(async () => {
-			if (pageState === 'waiting') await refreshDrivers();
-			if (pageState === 'pending' || pageState === 'onboard') await checkBookingStatus();
+			if (pageState === 'waiting' || pageState === 'pending' || pageState === 'onboard') {
+				await refreshLiveState();
+			}
 		}, 5000);
 	}
 
@@ -345,26 +365,6 @@
 		if (pollInterval) {
 			clearInterval(pollInterval);
 			pollInterval = null;
-		}
-	}
-
-	async function checkBookingStatus() {
-		try {
-			const requestSeq = ++activeBookingRequestSeq;
-			const mutationEpochAtStart = bookingMutationEpoch;
-			await activeBookingQuery.refresh();
-			if (requestSeq !== activeBookingRequestSeq) return;
-			if (mutationEpochAtStart !== bookingMutationEpoch) return;
-			const booking = (activeBookingQuery.current as ActiveBooking) ?? null;
-			if (!booking) {
-				pageState = 'waiting';
-				activeBooking = null;
-				return;
-			}
-			activeBooking = booking;
-			if (booking.status === 'onboard' && pageState === 'pending') pageState = 'onboard';
-		} catch {
-			// silent
 		}
 	}
 
@@ -409,9 +409,8 @@
 
 	function handleAlightSelf() {
 		if (!activeBooking) return;
-		if (alightingBookingId || alightSelf.pending > 0) return; // Prevent double-clicks
+		if (alightingBookingId || alightSelf.pending > 0) return;
 		
-		// Add 500ms debounce to prevent rapid race conditions with driver accept
 		const timeSinceLastAttempt = Date.now() - lastAlightAttemptTime;
 		if (timeSinceLastAttempt < 500) return;
 		
@@ -419,9 +418,7 @@
 		
 		lastAlightAttemptTime = Date.now();
 		alightingBookingId = activeBooking.id;
-		const bookingIdInput = alightSelfFormEl.querySelector(
-			'input[name="bookingId"]'
-		) as HTMLInputElement;
+		const bookingIdInput = alightSelfFormEl.querySelector('input[name="bookingId"]') as HTMLInputElement;
 		bookingIdInput.value = activeBooking.id;
 		alightSelfFormEl.requestSubmit();
 	}
@@ -489,22 +486,22 @@
 	});
 
 	const selfMarkerHtml = `
-		<div style="width:20px;height:20px;border-radius:50%;background:#f59e0b;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
-			<div style="position:absolute;inset:-6px;border-radius:50%;background:rgba(245,158,11,0.2);animation:pulse 2s infinite;"></div>
+		<div style="width:20px;height:20px;border-radius:50%;background:#1e3a8a;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+			<div style="position:absolute;inset:-6px;border-radius:50%;background:rgba(30, 58, 138, 0.2);animation:pulse 2s infinite;"></div>
 		</div>`;
 
 	function driverMarkerHtml(seats: number) {
 		const color = seats === 0 ? '#ef4444' : seats <= 2 ? '#f59e0b' : '#22c55e';
 		return `
 			<div style="width:40px;height:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:${color};border-radius:10px;border:2px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.25);cursor:pointer;">
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+			<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/></svg>
 				<span style="font-size:9px;font-weight:700;color:white;line-height:1;">${seats}</span>
 			</div>`;
 	}
 
 	const vanMarkerHtml = `
-		<div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#1e293b;border-radius:10px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,0.25);">
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect width="13" height="9" x="9" y="11" rx="1"/><circle cx="11.5" cy="20" r="1.5"/><circle cx="19.5" cy="20" r="1.5"/></svg>
+		<div class="z-1000" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#1e293b;border-radius:10px;border:3px solid white;box-shadow:0 4px 16px rgba(0,0,0,0.25);">
+			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/></svg>
 		</div>`;
 </script>
 
@@ -536,7 +533,6 @@
 			marker={passengerLocation ?? mapCenter}
 			destination={routeDestination}
 			useOsrm={routeDestination !== null}
-			markerLabel="Route origin"
 			destinationLabel="Route destination"
 			liveMarker={pageState === 'pending' || pageState === 'onboard' ? driverLiveLocation : null}
 			liveMarkerLabel="Driver"
@@ -618,27 +614,7 @@
 										class="driver-icon"
 										style="background: {d.availableSeats === 0 ? '#fee2e2' : '#dcfce7'}"
 									>
-										<svg
-											width="16"
-											height="16"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke={d.availableSeats === 0 ? '#ef4444' : '#16a34a'}
-											stroke-width="2.5"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3" /><rect
-												width="13"
-												height="9"
-												x="9"
-												y="11"
-												rx="1"
-											/><circle cx="11.5" cy="20" r="1.5" /><circle
-												cx="19.5"
-												cy="20"
-												r="1.5"
-											/></svg
-										>
+									<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={d.availableSeats === 0 ? '#ef4444' : '#16a34a'} stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/></svg>
 									</div>
 									<div class="driver-info">
 										<span class="driver-name">{d.name}</span>
@@ -765,23 +741,7 @@
 			<div class="sheet-handle"></div>
 			<div class="request-header">
 				<div class="request-van-icon">
-					<svg
-						width="24"
-						height="24"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="white"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3" /><rect
-							width="13"
-							height="9"
-							x="9"
-							y="11"
-							rx="1"
-						/><circle cx="11.5" cy="20" r="1.5" /><circle cx="19.5" cy="20" r="1.5" /></svg
-					>
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/></svg>
 				</div>
 				<div>
 					<h3 class="request-driver-name">{selectedDriver.name}</h3>
@@ -877,7 +837,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
-		color: #f59e0b;
+		color: #1e3a8a;
 		margin: 0 0 0.25rem;
 	}
 
@@ -921,14 +881,14 @@
 		position: absolute;
 		inset: 0;
 		border-radius: 50%;
-		background: rgba(245, 158, 11, 0.15);
+		background: rgba(30, 58, 138, 0.15);
 		animation: expand 1.5s ease-out infinite;
 	}
 	.pulse-core {
 		position: absolute;
 		inset: 12px;
 		border-radius: 50%;
-		background: #f59e0b;
+		background: #1e3a8a;
 	}
 	@keyframes expand {
 		0% {

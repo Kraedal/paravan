@@ -6,6 +6,7 @@ import {
 	updateDriverSchema,
 	createVehicleSchema,
 	updateVehicleSchema,
+	deleteVehicleSchema,
 	assignDriverSchema,
 	unassignDriverVehicleSchema,
 	createRouteSchema,
@@ -334,6 +335,65 @@ export const createVehicle = form(createVehicleSchema, async (data) => {
 	}
 });
 
+export const updateVehicle = form(updateVehicleSchema, async (data) => {
+	try {
+		const admin = requireAdmin();
+
+		if (!data.vehicleId) {
+			throw new Error('Vehicle ID is required');
+		}
+
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		// Verify the target vehicle belongs to this cooperative
+		const targetVehicle = await db.query.vehicle.findFirst({
+			where: and(eq(vehicle.id, data.vehicleId), eq(vehicle.cooperativeId, cooperativeData.id))
+		});
+
+		if (!targetVehicle) {
+			throw new Error('Vehicle not found in your cooperative');
+		}
+
+		// Build update object with only provided fields
+		const updateData: {
+			plateNumber?: string;
+			model?: string;
+			capacity?: number;
+		} = {};
+		if (data.plateNumber !== undefined) updateData.plateNumber = data.plateNumber;
+		if (data.model !== undefined) updateData.model = data.model;
+		if (data.capacity !== undefined) updateData.capacity = data.capacity;
+
+		if (Object.keys(updateData).length === 0) {
+			return { success: true }; // No fields to update
+		}
+
+		const updated = await db
+			.update(vehicle)
+			.set(updateData)
+			.where(and(eq(vehicle.id, data.vehicleId), eq(vehicle.cooperativeId, cooperativeData.id)))
+			.returning({ id: vehicle.id });
+
+		if (!updated.length) {
+			throw new Error('Vehicle not found or no longer belongs to your cooperative');
+		}
+
+		return { success: true };
+	} catch (error) {
+		// Log detailed error for debugging (server-side only)
+		if (error instanceof Error) {
+			console.error('[updateVehicle]', error);
+		}
+		return { success: false, error: 'An error occurred while updating the vehicle' };
+	}
+});
+
 export const getVehicles = query(async () => {
 	const user = requireAdmin();
 
@@ -369,7 +429,7 @@ export const getCooperativeDashboard = query(async () => {
 	};
 });
 
-export const deleteVehicle = form(updateVehicleSchema, async (data) => {
+export const deleteVehicle = form(deleteVehicleSchema, async (data) => {
 	try {
 		const admin = requireAdmin();
 		const cooperativeData = await db.query.cooperative.findFirst({

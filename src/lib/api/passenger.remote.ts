@@ -21,6 +21,73 @@ async function requirePassengerProfile() {
 	return passengerProfile;
 }
 
+async function fetchNearbyDrivers(passengerProfile: {
+	latitude: number | null;
+	longitude: number | null;
+	isWaiting: boolean;
+	targetRouteId: string | null;
+}) {
+	if (
+		passengerProfile.latitude == null ||
+		passengerProfile.longitude == null ||
+		!passengerProfile.isWaiting
+	) {
+		return [];
+	}
+
+	const routeFilter = passengerProfile.targetRouteId ?? null;
+
+	const availableDrivers = await db.query.driver.findMany({
+		where: (d, { eq, and, isNotNull }) =>
+			and(eq(d.isAvailable, true), isNotNull(d.latitude), isNotNull(d.longitude)),
+		with: {
+			user: {
+				columns: { name: true }
+			},
+			vehicle: true,
+			rides: {
+				where: (r, { eq, and }) =>
+					and(eq(r.status, 'ongoing'), routeFilter ? eq(r.routeId, routeFilter) : sql`true`),
+				with: { route: true },
+				limit: 1
+			}
+		}
+	});
+
+	return availableDrivers
+		.filter((d) => d.rides.length > 0)
+		.map((d) => ({
+			driverId: d.id,
+			name: d.user.name,
+			latitude: d.latitude!,
+			longitude: d.longitude!,
+			lastLocationUpdate: d.lastLocationUpdate,
+			vehicle: d.vehicle,
+			ride: d.rides[0],
+			availableSeats: d.rides[0].availableSeats
+		}));
+}
+
+async function fetchActiveBooking(passengerId: string) {
+	const activeBooking = await db.query.booking.findFirst({
+		where: (b, { eq, or, and }) =>
+			and(eq(b.passengerId, passengerId), or(eq(b.status, 'pending'), eq(b.status, 'onboard'))),
+		with: {
+			ride: {
+				with: {
+					driver: {
+						with: { user: { columns: { name: true } } }
+					},
+					vehicle: true,
+					route: true
+				}
+			}
+		}
+	});
+
+	return activeBooking ?? null;
+}
+
 // --- Profile ---
 
 export const getPassengerProfile = query(async () => {
@@ -80,48 +147,7 @@ export const setNotReady = form(async () => {
 
 export const getNearbyDrivers = query(async () => {
 	const passengerProfile = await requirePassengerProfile();
-
-	if (
-		passengerProfile.latitude == null ||
-		passengerProfile.longitude == null ||
-		!passengerProfile.isWaiting
-	) {
-		return [];
-	}
-
-	const routeFilter = passengerProfile.targetRouteId ?? null;
-
-	// get all available drivers that have a location and an ongoing ride
-	const availableDrivers = await db.query.driver.findMany({
-		where: (d, { eq, and, isNotNull }) =>
-			and(eq(d.isAvailable, true), isNotNull(d.latitude), isNotNull(d.longitude)),
-		with: {
-			user: {
-				columns: { name: true }
-			},
-			vehicle: true,
-			rides: {
-				where: (r, { eq, and }) =>
-					and(eq(r.status, 'ongoing'), routeFilter ? eq(r.routeId, routeFilter) : sql`true`),
-				with: { route: true },
-				limit: 1
-			}
-		}
-	});
-
-	// only return drivers that have an active ride
-	return availableDrivers
-		.filter((d) => d.rides.length > 0)
-		.map((d) => ({
-			driverId: d.id,
-			name: d.user.name,
-			latitude: d.latitude!,
-			longitude: d.longitude!,
-			lastLocationUpdate: d.lastLocationUpdate,
-			vehicle: d.vehicle,
-			ride: d.rides[0],
-			availableSeats: d.rides[0].availableSeats
-		}));
+	return fetchNearbyDrivers(passengerProfile);
 });
 
 // --- Booking ---
@@ -202,27 +228,38 @@ export const cancelBooking = form(cancelBookingSchema, async (data) => {
 
 export const getActiveBooking = query(async () => {
 	const passengerProfile = await requirePassengerProfile();
+	return fetchActiveBooking(passengerProfile.id);
+});
 
-	const activeBooking = await db.query.booking.findFirst({
-		where: (b, { eq, or, and }) =>
-			and(
-				eq(b.passengerId, passengerProfile.id),
-				or(eq(b.status, 'pending'), eq(b.status, 'onboard'))
-			),
-		with: {
-			ride: {
-				with: {
-					driver: {
-						with: { user: { columns: { name: true } } }
-					},
-					vehicle: true,
-					route: true
-				}
-			}
-		}
-	});
+export const getPassengerBootstrap = query(async () => {
+	const passengerProfile = await requirePassengerProfile();
+	const [activeBooking, nearbyDrivers] = await Promise.all([
+		fetchActiveBooking(passengerProfile.id),
+		fetchNearbyDrivers(passengerProfile)
+	]);
 
-	return activeBooking ?? null;
+	return {
+		profile: {
+			isWaiting: passengerProfile.isWaiting,
+			latitude: passengerProfile.latitude,
+			longitude: passengerProfile.longitude
+		},
+		activeBooking,
+		nearbyDrivers
+	};
+});
+
+export const getPassengerLiveState = query(async () => {
+	const passengerProfile = await requirePassengerProfile();
+	const [activeBooking, nearbyDrivers] = await Promise.all([
+		fetchActiveBooking(passengerProfile.id),
+		fetchNearbyDrivers(passengerProfile)
+	]);
+
+	return {
+		activeBooking,
+		nearbyDrivers
+	};
 });
 
 // --- Trip history ---
