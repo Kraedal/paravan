@@ -9,7 +9,7 @@
 # https://github.com/docker/awesome-compose
 services:
   server:
-    image: ${IMAGE:-ghcr.io/kraedal/parafinal:version0.0.1-node}
+    image: ${IMAGE:-ghcr.io/kraedal/parafinal:latest}
     build:
       context: .
     environment:

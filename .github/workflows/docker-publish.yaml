@@ -25,4 +25,4 @@ jobs:
           context: .
           platform: linux/amd64
           push: true
-          tags: ghcr.io/kraedal/parafinal:version0.0.1-node
+          tags: ghcr.io/kraedal/parafinal:latest
