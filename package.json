@@ -26,6 +26,7 @@
 		"@tailwindcss/vite": "^4.2.2",
 		"@types/leaflet": "^1.9.21",
 		"@types/node": "^24.12.0",
+		"@vite-pwa/sveltekit": "^1.1.0",
 		"drizzle-kit": "^0.31.10",
 		"drizzle-orm": "^0.45.1",
 		"eslint": "^9.39.4",

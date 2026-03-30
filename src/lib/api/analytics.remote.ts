@@ -27,6 +27,16 @@ const DEMAND_THRESHOLDS = {
 const WMA_WEIGHTS = [0.1, 0.2, 0.3, 0.4] as const;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_TIMEOUT_MS = 8000;
+const AI_MAX_CANDIDATES = 6;
+const AI_MAX_CONTEXT_SNIPPETS = 2;
+const AI_CACHE_TTL_MS = 10 * 60 * 1000;
+
+type AiSuggestionCacheEntry = {
+	expiresAt: number;
+	byKey: Map<string, string>;
+};
+
+const aiSuggestionCache = new Map<string, AiSuggestionCacheEntry>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -147,7 +157,7 @@ function getRagContextForSlot(slot: DemandSlot, snippets: RagSlotSnippet[]): Rag
 			return { score, snippet: s };
 		})
 		.sort((a, b) => b.score - a.score)
-		.slice(0, 3)
+		.slice(0, AI_MAX_CONTEXT_SNIPPETS)
 		.map((x) => x.snippet);
 
 	return ranked;
@@ -229,21 +239,44 @@ async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: R
 		return demandWeight * 10 + confidenceWeight;
 	};
 
-	const topCandidates = [...candidates].sort((a, b) => priority(b) - priority(a)).slice(0, 10);
+	const topCandidates = [...candidates]
+		.sort((a, b) => priority(b) - priority(a))
+		.slice(0, AI_MAX_CANDIDATES);
 	const fallbackByKey = new Map(
 		topCandidates.map((p) => [`${p.routeName}|${p.day}|${p.hourSlot}`, p.suggestion ?? ''])
 	);
-	const payload = topCandidates.map((p) => ({
-		routeName: p.routeName,
-		day: p.day,
-		hourSlot: p.hourSlot,
-		historicDemandLevel: p.historicDemandLevel,
-		forecastedDemandLevel: p.forecastedDemandLevel,
-		forecastConfidence: p.forecastConfidence,
-		totalRides: p.totalRides,
-		avgFillRatio: p.avgFillRatio,
-		retrievedContext: getRagContextForSlot(p, ragSnippets)
-	}));
+	const payload = topCandidates.map((p) => {
+		const context = getRagContextForSlot(p, ragSnippets).map(
+			(c) => `${c.routeName}|${c.day}|${c.hourSlot}|dem:${c.historicDemandLevel}|rides:${c.rides}|fill:${c.avgFillRatio}`
+		);
+		return {
+			r: p.routeName,
+			d: p.day,
+			h: p.hourSlot,
+			hd: p.historicDemandLevel,
+			fd: p.forecastedDemandLevel,
+			fc: p.forecastConfidence,
+			rides: p.totalRides,
+			fill: p.avgFillRatio,
+			ctx: context
+		};
+	});
+
+	const cacheKey = JSON.stringify(payload);
+	const now = Date.now();
+	const cached = aiSuggestionCache.get(cacheKey);
+	if (cached && cached.expiresAt > now) {
+		let appliedFromCache = 0;
+		for (const pattern of patterns) {
+			const key = `${pattern.routeName}|${pattern.day}|${pattern.hourSlot}`;
+			const cachedText = cached.byKey.get(key);
+			if (cachedText) {
+				pattern.suggestion = cachedText;
+				appliedFromCache += 1;
+			}
+		}
+		if (appliedFromCache > 0) return true;
+	}
 
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
@@ -257,16 +290,16 @@ async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: R
 			},
 			body: JSON.stringify({
 				model: env.GROQ_MODEL || 'llama-3.1-8b-instant',
-				temperature: 0.2,
+				temperature: 0,
 				messages: [
 					{
 						role: 'system',
 						content:
-							'You are an operations analyst for UV Express cooperatives. Produce concise, practical, one-sentence operational suggestions. Never contradict demand semantics: high demand implies high occupancy/high fill ratio, low demand implies low occupancy/low fill ratio. Return JSON only.'
+							'You are an operations analyst for UV Express cooperatives. Return JSON only. Keep each suggestion under 120 chars. Never contradict demand semantics.'
 					},
 					{
 						role: 'user',
-						content: `Rewrite these suggestions for dispatch planning. Keep each suggestion <= 160 chars, direct and actionable. Do not mention both high demand and low fill ratio together. Do not mention both low demand and high fill ratio together. If demand is high, suggest adding capacity/frequency; if demand is low, suggest reducing frequency/downsizing. Return JSON object with key "suggestions" containing array of {routeName, day, hourSlot, suggestion}.\n\n${JSON.stringify(payload)}`
+						content: `Rewrite dispatch suggestions. Rules: high demand=>increase capacity/frequency; low demand=>reduce frequency/downsizing; never mix high demand with low fill, or low demand with high fill. Return {"suggestions":[{"routeName","day","hourSlot","suggestion"}]}.\nData keys: r=route,d=day,h=hour,hd=historicDemand,fd=forecastDemand,fc=confidence,rides=rides,fill=avgFillRatio,ctx=related slots.\n${JSON.stringify(payload)}`
 					}
 				]
 			}),
@@ -286,6 +319,17 @@ async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: R
 		if (!aiSuggestions.length) return false;
 
 		const byKey = new Map(aiSuggestions.map((s) => [`${s.routeName}|${s.day}|${s.hourSlot}`, s.suggestion]));
+		aiSuggestionCache.set(cacheKey, {
+			expiresAt: now + AI_CACHE_TTL_MS,
+			byKey
+		});
+
+		if (aiSuggestionCache.size > 50) {
+			for (const [key, value] of aiSuggestionCache.entries()) {
+				if (value.expiresAt <= now) aiSuggestionCache.delete(key);
+			}
+		}
+
 		let appliedCount = 0;
 		for (const pattern of patterns) {
 			const key = `${pattern.routeName}|${pattern.day}|${pattern.hourSlot}`;
