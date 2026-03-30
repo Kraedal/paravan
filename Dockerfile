@@ -71,6 +71,7 @@ COPY --from=build /usr/src/app/build ./build
  
 # Expose the port that the application listens on.
 EXPOSE 3000
- 
-# Run the application.
+
+# Override the base image entrypoint and run the application directly.
+ENTRYPOINT []
 CMD ["bun", "build/index.js"]
