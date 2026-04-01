@@ -9,7 +9,7 @@ export function haversineDistance(a: [number, number], b: [number, number]): num
 }
 
 // Average PUV speed in urban Philippines in km/h
-const AVG_SPEED_KPH = 30;
+const AVG_SPEED_KPH = 60;
 
 export function calcETA(distanceKm: number): string {
 	const minutes = (distanceKm / AVG_SPEED_KPH) * 60;

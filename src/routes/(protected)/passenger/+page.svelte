@@ -65,25 +65,16 @@
 	let locationWatcher: number | null = null;
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 	let showDriverSheet: boolean = $state(false);
-	let pendingLocationPayload: [string, string] | null = $state(null);
-	let bookingRideId: string = $state('');
-	let cancelBookingId: string = $state('');
 	let alightingBookingId: string | null = $state(null);
+	let isSettingReady = $state(false);
+	let isSettingNotReady = $state(false);
+	let isRequestingBooking = $state(false);
+	let isCancellingBooking = $state(false);
+	let isAlighting = $state(false);
 	let mapCenter: [number, number] = $state([14.5995, 120.9842]);
 	let liveStateRequestSeq = 0;
 	let bookingMutationEpoch = 0;
 	let lastAlightAttemptTime = 0;
-	let lastSeenSetReadyResult: unknown = null;
-	let lastSeenSetNotReadyResult: unknown = null;
-	let lastSeenRequestBookingResult: unknown = null;
-	let lastSeenCancelBookingResult: unknown = null;
-	let lastSeenAlightSelfResult: unknown = null;
-
-	let setReadyFormEl: HTMLFormElement;
-	let setNotReadyFormEl: HTMLFormElement;
-	let requestBookingFormEl: HTMLFormElement;
-	let cancelBookingFormEl: HTMLFormElement;
-	let alightSelfFormEl: HTMLFormElement;
 
 	const bootstrapQuery = getPassengerBootstrap();
 	const liveStateQuery = getPassengerLiveState();
@@ -147,44 +138,20 @@
 		return calcETA(distanceToDriver);
 	});
 
-	$effect(() => {
-		const result = setReady.result as { success?: boolean; error?: string } | null;
-		if (!result) return;
-		if (result === lastSeenSetReadyResult) return;
-		lastSeenSetReadyResult = result;
+	function getErrorMessage(error: unknown, fallback: string) {
+		if (error instanceof Error && error.message) return error.message;
+		return fallback;
+	}
 
-		if (result.success) {
-			if (passengerLocation) mapCenter = passengerLocation;
-			pageState = 'waiting';
-			startLocationWatch();
-			void refreshLiveState();
-			startPolling();
-			pendingLocationPayload = null;
-			return;
-		}
+	function getDriverDistanceKm(driver: Driver): number | null {
+		if (!passengerLocation) return null;
+		return haversineDistance(passengerLocation, [driver.latitude, driver.longitude]);
+	}
 
-		if (result.error) {
-			locationError = result.error;
-			pageState = 'idle';
-			pendingLocationPayload = null;
-		}
-	});
-
-	$effect(() => {
-		const result = setNotReady.result as { success?: boolean; error?: string } | null;
-		if (!result) return;
-		if (result === lastSeenSetNotReadyResult) return;
-		lastSeenSetNotReadyResult = result;
-
-		if (result.success) {
-			window.location.reload();
-			return;
-		}
-
-		if (result.error) {
-			locationError = result.error;
-		}
-	});
+	function formatDistance(distanceKm: number): string {
+		if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m away`;
+		return `${distanceKm.toFixed(1)} km away`;
+	}
 
 	$effect(() => {
 		if (!showDriverSheet) return;
@@ -194,97 +161,35 @@
 		}
 	});
 
-	$effect(() => {
-		const result = requestBooking.result as { success?: boolean; error?: string } | null;
-		if (!result) return;
-		if (result === lastSeenRequestBookingResult) return;
-		lastSeenRequestBookingResult = result;
-
-		if (result.success) {
-			bookingMutationEpoch += 1;
-			showDriverSheet = false;
-			pageState = 'pending';
-			void refreshLiveState();
-			startPolling();
-			bookingRideId = '';
-			return;
-		}
-
-		if (result.error) {
-			alert(result.error);
-			bookingRideId = '';
-		}
-	});
-
-	$effect(() => {
-		const result = cancelBooking.result as { success?: boolean; error?: string } | null;
-		if (!result) return;
-		if (result === lastSeenCancelBookingResult) return;
-		lastSeenCancelBookingResult = result;
-
-		if (result.success) {
-			bookingMutationEpoch += 1;
-			activeBooking = null;
-			pageState = 'waiting';
-			void refreshLiveState();
-			cancelBookingId = '';
-			return;
-		}
-
-		if (result.error) {
-			alert(result.error);
-			cancelBookingId = '';
-		}
-	});
-
-	$effect(() => {
-		const result = alightSelf.result as { success?: boolean; error?: string } | null;
-		if (!result) return;
-		if (result === lastSeenAlightSelfResult) return;
-		lastSeenAlightSelfResult = result;
-
-		if (result.success) {
-			pageState = 'idle';
-			activeBooking = null;
-			alightingBookingId = null;
-			// Refresh booking data then reload with longer delay to ensure database persistence
-			void refreshLiveState().then(() => {
-				setTimeout(() => {
-					window.location.reload();
-				}, 1000);
-			});
-			return;
-		}
-
-		if (result.error) {
-			alert(result.error);
-			alightingBookingId = null;
-			// Refresh booking state to sync with server and recover UI state
-			void refreshLiveState();
-		}
-	});
-
 	function shareLocation() {
+		if (isSettingReady) return;
 		pageState = 'locating';
 		locationError = '';
 
 		navigator.geolocation.getCurrentPosition(
-			(pos) => {
+			async (pos) => {
+				isSettingReady = true;
 				const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
 				passengerLocation = coords;
 				mapCenter = coords;
-				pendingLocationPayload = [String(coords[0]), String(coords[1])];
-				const latInput = setReadyFormEl.querySelector('input[name="latitude"]') as HTMLInputElement;
-				const lngInput = setReadyFormEl.querySelector(
-					'input[name="longitude"]'
-				) as HTMLInputElement;
-				latInput.value = String(coords[0]);
-				lngInput.value = String(coords[1]);
-				setReadyFormEl.requestSubmit();
+
+				try {
+					await setReady({ latitude: String(coords[0]), longitude: String(coords[1]) });
+					pageState = 'waiting';
+					startLocationWatch();
+					await refreshLiveState();
+					startPolling();
+				} catch (error) {
+					locationError = getErrorMessage(error, 'Unable to share your location right now.');
+					pageState = 'idle';
+				} finally {
+					isSettingReady = false;
+				}
 			},
 			() => {
 				locationError = 'Location access denied. Please enable GPS.';
 				pageState = 'idle';
+				isSettingReady = false;
 			}
 		);
 	}
@@ -316,8 +221,19 @@
 		locationWatcher = null;
 	}
 
-	function stopWaiting() {
-		setNotReadyFormEl.requestSubmit();
+	async function stopWaiting() {
+		if (isSettingNotReady) return;
+		isSettingNotReady = true;
+		locationError = '';
+
+		try {
+			await setNotReady();
+			window.location.reload();
+		} catch (error) {
+			locationError = getErrorMessage(error, 'Unable to stop waiting right now.');
+		} finally {
+			isSettingNotReady = false;
+		}
 	}
 
 	async function refreshLiveState() {
@@ -368,26 +284,43 @@
 		}
 	}
 
-	function requestRide() {
+	async function requestRide() {
 		if (!selectedDriver?.ride) return;
-		if (requestBooking.pending > 0) return;
+		if (isRequestingBooking) return;
+
+		isRequestingBooking = true;
 		bookingMutationEpoch += 1;
-		bookingRideId = selectedDriver.ride.id;
-		const rideIdInput = requestBookingFormEl.querySelector(
-			'input[name="rideId"]'
-		) as HTMLInputElement;
-		rideIdInput.value = selectedDriver.ride.id;
-		requestBookingFormEl.requestSubmit();
+
+		try {
+			await requestBooking({ rideId: selectedDriver.ride.id });
+			showDriverSheet = false;
+			pageState = 'pending';
+			await refreshLiveState();
+			startPolling();
+		} catch (error) {
+			alert(getErrorMessage(error, 'Unable to request this ride right now.'));
+		} finally {
+			isRequestingBooking = false;
+		}
 	}
 
-	function cancelRide() {
+	async function cancelRide() {
 		if (!activeBooking) return;
-		cancelBookingId = activeBooking.id;
-		const bookingIdInput = cancelBookingFormEl.querySelector(
-			'input[name="bookingId"]'
-		) as HTMLInputElement;
-		bookingIdInput.value = activeBooking.id;
-		cancelBookingFormEl.requestSubmit();
+		if (isCancellingBooking) return;
+
+		isCancellingBooking = true;
+		bookingMutationEpoch += 1;
+
+		try {
+			await cancelBooking({ bookingId: activeBooking.id });
+			activeBooking = null;
+			pageState = 'waiting';
+			await refreshLiveState();
+		} catch (error) {
+			alert(getErrorMessage(error, 'Unable to cancel booking right now.'));
+		} finally {
+			isCancellingBooking = false;
+		}
 	}
 
 	function closeDriverSheet() {
@@ -407,20 +340,46 @@
 		showDriverSheet = true;
 	}
 
-	function handleAlightSelf() {
+	async function handleAlightSelf() {
 		if (!activeBooking) return;
-		if (alightingBookingId || alightSelf.pending > 0) return;
-		
+		if (alightingBookingId || isAlighting) return;
+
 		const timeSinceLastAttempt = Date.now() - lastAlightAttemptTime;
 		if (timeSinceLastAttempt < 500) return;
-		
+
 		if (!activeBooking.id) return;
-		
+
 		lastAlightAttemptTime = Date.now();
+		isAlighting = true;
 		alightingBookingId = activeBooking.id;
-		const bookingIdInput = alightSelfFormEl.querySelector('input[name="bookingId"]') as HTMLInputElement;
-		bookingIdInput.value = activeBooking.id;
-		alightSelfFormEl.requestSubmit();
+
+		try {
+			const result = (await alightSelf({ bookingId: activeBooking.id })) as {
+				success?: boolean;
+				error?: string;
+			};
+
+			if (result?.success) {
+				pageState = 'idle';
+				activeBooking = null;
+				alightingBookingId = null;
+				await refreshLiveState();
+				setTimeout(() => {
+					window.location.reload();
+				}, 1000);
+				return;
+			}
+
+			alert(result?.error ?? 'Unable to alight right now. Please try again.');
+			alightingBookingId = null;
+			await refreshLiveState();
+		} catch (error) {
+			alert(getErrorMessage(error, 'Unable to alight right now. Please try again.'));
+			alightingBookingId = null;
+			await refreshLiveState();
+		} finally {
+			isAlighting = false;
+		}
 	}
 
 	let activeRoute: {
@@ -506,25 +465,6 @@
 </script>
 
 <div class="passenger-root">
-	<form bind:this={setReadyFormEl} {...setReady} class="hidden">
-		<input type="hidden" name="latitude" value={pendingLocationPayload?.[0] ?? ''} />
-		<input type="hidden" name="longitude" value={pendingLocationPayload?.[1] ?? ''} />
-	</form>
-
-	<form bind:this={setNotReadyFormEl} {...setNotReady} class="hidden"></form>
-
-	<form bind:this={requestBookingFormEl} {...requestBooking} class="hidden">
-		<input type="hidden" name="rideId" value={bookingRideId} />
-	</form>
-
-	<form bind:this={cancelBookingFormEl} {...cancelBooking} class="hidden">
-		<input type="hidden" name="bookingId" value={cancelBookingId} />
-	</form>
-
-	<form bind:this={alightSelfFormEl} {...alightSelf} class="hidden">
-		<input type="hidden" name="bookingId" value={activeBooking?.id ?? ''} />
-	</form>
-
 	<!-- Full screen map -->
 	<div class="map-layer" aria-label="Passenger map">
 		<MapView
@@ -619,7 +559,7 @@
 									<div class="driver-info">
 										<span class="driver-name">{d.name}</span>
 										<span class="driver-meta"
-											>{d.vehicle?.model ?? 'UV Express'} · {d.ride?.route?.name ?? 'Route'}</span
+											>{d.vehicle?.model ?? 'UV Express'} · {d.ride?.route?.name ?? 'Route'}{#if getDriverDistanceKm(d) != null} · {formatDistance(getDriverDistanceKm(d)!)}{/if}</span
 										>
 									</div>
 									<div class="seat-badge" class:full={d.availableSeats === 0}>
@@ -757,6 +697,12 @@
 					<span class="req-label">Route</span>
 					<span class="req-val">{selectedDriver.ride?.route?.name ?? '—'}</span>
 				</div>
+				{#if getDriverDistanceKm(selectedDriver) != null}
+					<div class="req-detail">
+						<span class="req-label">Distance</span>
+						<span class="req-val">{formatDistance(getDriverDistanceKm(selectedDriver)!)} </span>
+					</div>
+				{/if}
 				<div class="req-detail">
 					<span class="req-label">Available seats</span>
 					<span class="req-val seats-val" class:no-seats={selectedDriver.availableSeats === 0}>
@@ -769,7 +715,7 @@
 				<button
 					class="primary-btn request-ride-btn"
 					onclick={requestRide}
-					disabled={requestBooking.pending > 0}
+					disabled={isRequestingBooking}
 				>
 					Request This Van
 				</button>
@@ -1113,13 +1059,6 @@
 		color: #0f172a;
 		font-weight: 600;
 		text-align: right;
-	}
-
-	.alight-note {
-		font-size: 0.8rem;
-		color: #64748b;
-		line-height: 1.5;
-		margin: 0;
 	}
 
 	/* Driver request overlay */
