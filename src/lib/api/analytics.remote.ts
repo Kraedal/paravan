@@ -400,6 +400,7 @@ export type DemandSummary = {
 	highDemandSlots: number;
 	lowDemandSlots: number;
 	forecastedHighSlots: number;
+	forecastedLowSlots: number;
 	totalPatternsAnalyzed: number;
 	ridesAnalyzed: number;
 };
@@ -474,7 +475,7 @@ export const getDemandPatterns = query(async () => {
 
 		// rawWeekIndex: 0 = most recent, flip to store oldest at index 0
 		const rawWeekIndex = getWeekIndex(date, now);
-		if (rawWeekIndex > 3) continue; // older than 4 weeks, skip
+		if (rawWeekIndex < 0 || rawWeekIndex > 3) continue; // skip future-dated or older than 4 weeks
 
 		if (!slotWeeks.has(key)) {
 			slotWeeks.set(key, { fillRatios: [undefined, undefined, undefined, undefined], capacity, routeName });
@@ -562,6 +563,7 @@ export const getDemandPatterns = query(async () => {
 		highDemandSlots: patterns.filter((p) => p.historicDemandLevel === 'high').length,
 		lowDemandSlots: patterns.filter((p) => p.historicDemandLevel === 'low').length,
 		forecastedHighSlots: patterns.filter((p) => p.forecastedDemandLevel === 'high').length,
+		forecastedLowSlots: patterns.filter((p) => p.forecastedDemandLevel === 'low').length,
 		totalPatternsAnalyzed: patterns.length,
 		ridesAnalyzed: recentRides.length
 	};
@@ -595,12 +597,13 @@ export const getAnalytics = query(async () => {
 	const unassignedDrivers = allDrivers.filter((d) => !d.vehicleId);
 
 	// --- Rule: Expiring licenses (within 30 days) ---
+	const today = new Date();
 	const thirtyDaysFromNow = new Date();
 	thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 	const expiringLicenses = allDrivers.filter((d) => {
 		if (!d.licenseExpiry) return false;
 		const expiry = new Date(d.licenseExpiry);
-		return expiry <= thirtyDaysFromNow && expiry >= new Date();
+		return expiry <= thirtyDaysFromNow && expiry >= today;
 	});
 
 	// --- Ride data for today ---
@@ -633,8 +636,8 @@ export const getAnalytics = query(async () => {
 	// --- Direction split ---
 	const directionSplit = { northbound: 0, southbound: 0 };
 	todayRides.forEach((r) => {
-		if (r.route.direction === 'northbound') directionSplit.northbound++;
-		else if (r.route.direction === 'southbound') directionSplit.southbound++;
+		if (r.route?.direction === 'northbound') directionSplit.northbound++;
+		else if (r.route?.direction === 'southbound') directionSplit.southbound++;
 	});
 
 	const completedToday = todayRides.filter((r) => r.status === 'completed');

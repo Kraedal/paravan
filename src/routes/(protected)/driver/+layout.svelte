@@ -15,16 +15,11 @@
 	let isOpen = $state(false);
 	let showMenu = $state(false);
 	let profile = $state<DriverProfile | null>(null);
+	let isTogglingAvailability = $state(false);
 
 	const profileQuery = getDriverProfile();
 
 	onMount(() => {
-		void refreshProfile();
-	});
-
-	$effect(() => {
-		const result = toggleDriverAvailability.result as { success?: boolean } | null;
-		if (!result?.success) return;
 		void refreshProfile();
 	});
 
@@ -44,6 +39,18 @@
 			profile = null;
 		}
 	}
+
+	async function handleToggleAvailability() {
+		if (isTogglingAvailability) return;
+		isTogglingAvailability = true;
+
+		try {
+			await toggleDriverAvailability({});
+			await refreshProfile();
+		} finally {
+			isTogglingAvailability = false;
+		}
+	}
 </script>
 
 <div class="relative min-h-screen">
@@ -59,27 +66,26 @@
 			<div class="text-xs font-medium text-slate-500">{profile?.name ?? ''}</div>
 		</div>
 		<div class="flex flex-row items-center gap-2">
-			<form {...toggleDriverAvailability} class="contents">
-				<button
-					type="submit"
-					disabled={toggleDriverAvailability.pending > 0}
-					class={`flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.825rem] font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+			<button
+				type="button"
+				onclick={handleToggleAvailability}
+				disabled={isTogglingAvailability}
+				class={`flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.825rem] font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+					profile?.isAvailable
+						? 'border-green-200 bg-green-50 text-green-600'
+						: 'border-slate-200 bg-slate-50 text-slate-400'
+				}`}
+				aria-label="Toggle availability"
+			>
+				<span
+					class={`h-2 w-2 rounded-full ${
 						profile?.isAvailable
-							? 'border-green-200 bg-green-50 text-green-600'
-							: 'border-slate-200 bg-slate-50 text-slate-400'
+							? 'animate-[blink_1.5s_ease-in-out_infinite] bg-green-500'
+							: 'bg-slate-300'
 					}`}
-					aria-label="Toggle availability"
-				>
-					<span
-						class={`h-2 w-2 rounded-full ${
-							profile?.isAvailable
-								? 'animate-[blink_1.5s_ease-in-out_infinite] bg-green-500'
-								: 'bg-slate-300'
-						}`}
-					></span>
-					{profile?.isAvailable ? 'Online' : 'Offline'}
-				</button>
-			</form>
+				></span>
+				{profile?.isAvailable ? 'Online' : 'Offline'}
+			</button>
 			<div class="relative">
 				<button
 					type="button"

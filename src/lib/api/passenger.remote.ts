@@ -1,9 +1,12 @@
-import { form, getRequestEvent, query } from '$app/server';
+import { command, getRequestEvent, query } from '$app/server';
 import { and, eq, sql } from 'drizzle-orm';
 import { setReadySchema, requestBookingSchema, cancelBookingSchema } from '$lib/schema/passenger';
 import { db } from '$lib/server/db';
 import { passenger, booking, ride } from '$lib/server/db/schema';
 import { generateId } from '$lib/utils/id';
+import { haversineDistance } from '$lib/utils/eta';
+
+const MAX_DRIVER_RADIUS_KM = 5;
 
 function requirePassenger() {
 	const { locals } = getRequestEvent();
@@ -56,6 +59,13 @@ async function fetchNearbyDrivers(passengerProfile: {
 
 	return availableDrivers
 		.filter((d) => d.rides.length > 0)
+		.filter((d) => {
+			const distanceKm = haversineDistance(
+				[passengerProfile.latitude!, passengerProfile.longitude!],
+				[d.latitude!, d.longitude!]
+			);
+			return distanceKm <= MAX_DRIVER_RADIUS_KM;
+		})
 		.map((d) => ({
 			driverId: d.id,
 			name: d.user.name,
@@ -102,7 +112,7 @@ export const getPassengerProfile = query(async () => {
 
 // --- Ready state ---
 
-export const setReady = form(setReadySchema, async (data) => {
+export const setReady = command(setReadySchema, async (data) => {
 	const user = requirePassenger();
 
 	if (data.targetRouteId) {
@@ -126,7 +136,7 @@ export const setReady = form(setReadySchema, async (data) => {
 	return { success: true };
 });
 
-export const setNotReady = form(async () => {
+export const setNotReady = command(async () => {
 	const user = requirePassenger();
 
 	await db
@@ -152,7 +162,7 @@ export const getNearbyDrivers = query(async () => {
 
 // --- Booking ---
 
-export const requestBooking = form(requestBookingSchema, async (data) => {
+export const requestBooking = command(requestBookingSchema, async (data) => {
 	const user = requirePassenger();
 
 	await db.transaction(async (tx) => {
@@ -184,10 +194,30 @@ export const requestBooking = form(requestBookingSchema, async (data) => {
 
 		const rideData = await tx.query.ride.findFirst({
 			where: (r, { eq, and }) => and(eq(r.id, data.rideId), eq(r.status, 'ongoing'))
+			,
+			with: {
+				driver: {
+					columns: {
+						latitude: true,
+						longitude: true
+					}
+				}
+			}
 		});
 
 		if (!rideData) throw new Error('Ride not found or no longer active');
 		if (rideData.availableSeats <= 0) throw new Error('No available seats');
+		if (rideData.driver.latitude == null || rideData.driver.longitude == null) {
+			throw new Error('Driver location unavailable. Please try another van.');
+		}
+
+		const distanceKm = haversineDistance(
+			[passengerProfile.latitude, passengerProfile.longitude],
+			[rideData.driver.latitude, rideData.driver.longitude]
+		);
+		if (distanceKm > MAX_DRIVER_RADIUS_KM) {
+			throw new Error('Selected van is outside the 5km pickup radius');
+		}
 
 		if (passengerProfile.targetRouteId && rideData.routeId !== passengerProfile.targetRouteId) {
 			throw new Error('Selected ride does not match your target route');
@@ -206,7 +236,7 @@ export const requestBooking = form(requestBookingSchema, async (data) => {
 	return { success: true };
 });
 
-export const cancelBooking = form(cancelBookingSchema, async (data) => {
+export const cancelBooking = command(cancelBookingSchema, async (data) => {
 	const passengerProfile = await requirePassengerProfile();
 
 	const updated = await db
@@ -287,7 +317,7 @@ export const getBookingHistory = query(async () => {
 	return history;
 });
 
-export const alightSelf = form(cancelBookingSchema, async (data) => {
+export const alightSelf = command(cancelBookingSchema, async (data) => {
 	const passengerProfile = await requirePassengerProfile();
 
 	try {

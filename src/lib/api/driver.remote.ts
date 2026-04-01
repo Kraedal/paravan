@@ -2,7 +2,7 @@ import { db } from '$lib/server/db';
 import { ride, booking, driver } from '$lib/server/db/schema';
 import { generateId } from '$lib/utils/id';
 import { getRequestEvent } from '$app/server';
-import { form, query } from '$app/server';
+import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import {
@@ -90,7 +90,7 @@ export const getCooperativeRoutes = query(async () => {
 	return routes;
 });
 
-export const startRide = form(startRideSchema, async (data) => {
+export const startRide = command(startRideSchema, async (data) => {
 	const driverProfile = await requireDriver();
 
 	if (!driverProfile.cooperative) {
@@ -141,7 +141,7 @@ export const startRide = form(startRideSchema, async (data) => {
 	return { success: true, ride: newRide[0] };
 });
 
-export const endRide = form(endRideSchema, async (data) => {
+export const endRide = command(endRideSchema, async (data) => {
 	try {
 		const driverProfile = await requireDriver();
 
@@ -273,7 +273,7 @@ export const getDriverLiveState = query(async () => {
 	};
 });
 
-export const acceptBooking = form(bookingActionSchema, async (data) => {
+export const acceptBooking = command(bookingActionSchema, async (data) => {
 	const driverProfile = await requireDriver();
 
 	await db.transaction(async (tx) => {
@@ -318,7 +318,7 @@ export const acceptBooking = form(bookingActionSchema, async (data) => {
 	return { success: true };
 });
 
-export const completeBooking = form(bookingActionSchema, async (data) => {
+export const completeBooking = command(bookingActionSchema, async (data) => {
 	const driverProfile = await requireDriver();
 
 	await db.transaction(async (tx) => {
@@ -354,7 +354,7 @@ export const completeBooking = form(bookingActionSchema, async (data) => {
 	return { success: true };
 });
 
-export const rejectBooking = form(bookingActionSchema, async (data) => {
+export const rejectBooking = command(bookingActionSchema, async (data) => {
 	const driverProfile = await requireDriver();
 
 	const currentRide = await db.query.ride.findFirst({
@@ -380,7 +380,7 @@ export const rejectBooking = form(bookingActionSchema, async (data) => {
 	return { success: true };
 });
 
-export const updateDriverLocation = form(updateLocationSchema, async (data) => {
+export const updateDriverLocation = command(updateLocationSchema, async (data) => {
 	const driverProfile = await requireDriver();
 
 	await db
@@ -395,7 +395,7 @@ export const updateDriverLocation = form(updateLocationSchema, async (data) => {
 	return { success: true };
 });
 
-export const toggleDriverAvailability = form(z.object(), async () => {
+export const toggleDriverAvailability = command(z.object(), async () => {
 	const driverProfile = await requireDriver();
 
 	const newStatus = driverProfile.isAvailable ? false : true;

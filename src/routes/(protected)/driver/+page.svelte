@@ -1,6 +1,6 @@
 <script lang="ts">
 	// ─── Imports ─────────────────────────────────────────────────────────────────
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import MapView from '$lib/components/mapView.svelte';
 	import {
 		getCooperativeRoutes,
@@ -81,14 +81,8 @@
 	let bookings: Booking[] = $state([]);
 	let routes: Route[] = $state([]);
 	let errorMsg: string = $state('');
-	let endRidePayloadId: string = $state('');
 	let liveStateRequestSeq = 0;
 	let bookingsMutationEpoch = 0;
-	let lastSeenAcceptResult: unknown = null;
-	let lastSeenCompleteResult: unknown = null;
-	let lastSeenRejectResult: unknown = null;
-	let lastSeenStartRideResult: unknown = null;
-	let lastSeenEndRideResult: unknown = null;
 
 	function isValidLatLng(point: [number, number] | null | undefined): point is [number, number] {
 		if (!point) return false;
@@ -106,17 +100,13 @@
 	// Start ride form fields
 	let selectedRouteId: string = $state('');
 
-	// Hidden form payload state — each action gets its own var to avoid races
-	let startVehicleId: string = $state('');
-	let startRouteId: string = $state('');
-	let acceptId: string = $state('');
 	let acceptingBookingId: string | null = $state(null);
-	let completeId: string = $state('');
 	let completingBookingId: string | null = $state(null);
-	let rejectId: string = $state('');
 	let rejectingBookingId: string | null = $state(null);
-	let locLat: string = $state('');
-	let locLng: string = $state('');
+	let isTogglingAvailability = $state(false);
+	let isStartingRide = $state(false);
+	let isEndingRide = $state(false);
+	let isUpdatingLocation = $state(false);
 
 	// Live location
 	let driverLocation: [number, number] | null = $state(null);
@@ -135,14 +125,10 @@
 	let lastLocUpdate = 0;
 	const LOC_THROTTLE = 5000;
 
-	// ─── Form element refs ────────────────────────────────────────────────────────
-	let toggleAvailForm: HTMLFormElement;
-	let updateLocForm: HTMLFormElement;
-	let startRideForm: HTMLFormElement;
-	let endRideForm: HTMLFormElement;
-	let acceptForm: HTMLFormElement;
-	let completeForm: HTMLFormElement;
-	let rejectForm: HTMLFormElement;
+	function getErrorMessage(error: unknown, fallback: string) {
+		if (error instanceof Error && error.message) return error.message;
+		return fallback;
+	}
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────────
 	onMount(() => void init());
@@ -218,8 +204,8 @@
 		if (pollInterval) return;
 		pollInterval = setInterval(async () => {
 			if (pageState !== 'driving') return;
-			if (acceptingBookingId || acceptBooking.pending > 0) return;
-			if (completingBookingId || completeBooking.pending > 0) return;
+			if (acceptingBookingId) return;
+			if (completingBookingId) return;
 			await refreshLiveState();
 		}, 5000);
 	}
@@ -246,12 +232,20 @@
 
 				const now = Date.now();
 				if (now - lastLocUpdate < LOC_THROTTLE) return;
+				if (isUpdatingLocation) return;
 				lastLocUpdate = now;
+				isUpdatingLocation = true;
 
-				locLat = String(coords[0]);
-				locLng = String(coords[1]);
-				await tick();
-				updateLocForm.requestSubmit();
+				try {
+					await updateDriverLocation({
+						latitude: String(coords[0]),
+						longitude: String(coords[1])
+					});
+				} catch {
+					// Keep location watcher alive even if one update fails.
+				} finally {
+					isUpdatingLocation = false;
+				}
 			},
 			() => {
 				errorMsg = 'Location access denied.';
@@ -269,9 +263,44 @@
 
 
 	// ─── Action handlers ──────────────────────────────────────────────────────────
-	function handleToggleAvailability() {
+	async function handleToggleAvailability() {
+		if (isTogglingAvailability) return;
+		isTogglingAvailability = true;
 		errorMsg = '';
-		toggleAvailForm.requestSubmit();
+
+		try {
+			const result = (await toggleDriverAvailability({})) as {
+				success?: boolean;
+				error?: string;
+				isAvailable?: boolean;
+			};
+
+			if (!result?.success) {
+				errorMsg = result?.error ?? 'Unable to update availability.';
+				return;
+			}
+
+			if (result.isAvailable === false) {
+				ongoingRide = null;
+				bookings = [];
+				driverLocation = null;
+				stopPoll();
+				stopWatch();
+				pageState = 'offline';
+				lastRideEndTime = Date.now();
+			}
+
+			await refreshBootstrap();
+
+			if (result.isAvailable === true) {
+				routes = [];
+				showStartSheet = false;
+			}
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to update availability.');
+		} finally {
+			isTogglingAvailability = false;
+		}
 	}
 
 	async function openStartSheet() {
@@ -286,12 +315,32 @@
 	}
 
 	async function handleStartRide() {
-		if (!selectedRouteId || !profile?.vehicleId) return;
+		if (!selectedRouteId || !profile?.vehicleId || isStartingRide) return;
+		isStartingRide = true;
 		errorMsg = '';
-		startVehicleId = profile.vehicleId;
-		startRouteId = selectedRouteId;
-		await tick();
-		startRideForm.requestSubmit();
+
+		try {
+			const result = (await startRide({
+				vehicleId: profile.vehicleId,
+				routeId: selectedRouteId
+			})) as { success?: boolean; error?: string };
+
+			if (!result?.success) {
+				errorMsg = result?.error ?? 'Unable to start ride right now.';
+				return;
+			}
+
+			showEndRideModal = false;
+			await refreshBootstrap();
+			pageState = 'driving';
+			showStartSheet = false;
+			startPoll();
+			startWatch();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to start ride right now.');
+		} finally {
+			isStartingRide = false;
+		}
 	}
 
 	function openEndRideModal() {
@@ -305,6 +354,7 @@
 	}
 
 	async function submitEndRide() {
+		if (isEndingRide) return;
 		const rideId = ongoingRide?.id;
 		if (!rideId) {
 			errorMsg = 'No active ride to end.';
@@ -312,19 +362,43 @@
 			return;
 		}
 
-		if (!endRideForm) {
-			errorMsg = 'End ride form is not ready.';
-			return;
-		}
-
+		isEndingRide = true;
 		errorMsg = '';
-		endRidePayloadId = rideId;
-		await tick();
-		endRideForm.requestSubmit();
+
+		try {
+			const result = (await endRide({ rideId })) as {
+				success?: boolean;
+				error?: string;
+				autoAlightedCount?: number;
+			};
+
+			if (!result?.success) {
+				showEndRideModal = false;
+				errorMsg = result?.error ?? 'Unable to end ride right now.';
+				return;
+			}
+
+			showEndRideModal = false;
+			ongoingRide = null;
+			bookings = [];
+			driverLocation = null;
+			errorMsg = '';
+			stopPoll();
+			stopWatch();
+			pageState = 'offline';
+			selectedRouteId = '';
+			lastRideEndTime = Date.now();
+			await refreshBootstrap();
+		} catch (error) {
+			showEndRideModal = false;
+			errorMsg = getErrorMessage(error, 'Unable to end ride right now.');
+		} finally {
+			isEndingRide = false;
+		}
 	}
 
 	async function handleAccept(bookingId: string) {
-		if (acceptingBookingId || acceptBooking.pending > 0) return;
+		if (acceptingBookingId) return;
 		
 		// Add debounce to prevent rapid accept spam
 		const timeSinceLastAttempt = Date.now() - lastAcceptAttemptTime;
@@ -336,13 +410,19 @@
 		// Optimistically move request to onboard to avoid remove/reinsert flicker.
 		bookings = bookings.map((b) => (b.id === bookingId ? { ...b, status: 'onboard' } : b));
 
-		acceptId = bookingId;
-		await tick();
-		acceptForm.requestSubmit();
+		try {
+			await acceptBooking({ bookingId });
+			await refreshLiveState();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to accept booking right now.');
+			await refreshLiveState();
+		} finally {
+			acceptingBookingId = null;
+		}
 	}
 
 	async function handleComplete(bookingId: string) {
-		if (completingBookingId || completeBooking.pending > 0) return;
+		if (completingBookingId) return;
 		
 		// Add debounce to prevent rapid complete actions
 		const timeSinceLastAttempt = Date.now() - lastCompleteAttemptTime;
@@ -354,13 +434,19 @@
 		// Optimistically mark passenger as completed so occupancy updates immediately.
 		bookings = bookings.map((b) => (b.id === bookingId ? { ...b, status: 'completed' } : b));
 
-		completeId = bookingId;
-		await tick();
-		completeForm.requestSubmit();
+		try {
+			await completeBooking({ bookingId });
+			await refreshLiveState();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to complete booking right now.');
+			await refreshLiveState();
+		} finally {
+			completingBookingId = null;
+		}
 	}
 
 	async function handleReject(bookingId: string) {
-		if (rejectingBookingId || rejectBooking.pending > 0) return;
+		if (rejectingBookingId) return;
 		
 		// Add debounce to prevent rapid reject spam
 		const timeSinceLastAttempt = Date.now() - lastRejectAttemptTime;
@@ -372,127 +458,16 @@
 		// Optimistically remove from list
 		bookings = bookings.filter((b) => b.id !== bookingId);
 
-		rejectId = bookingId;
-		await tick();
-		rejectForm.requestSubmit();
+		try {
+			await rejectBooking({ bookingId });
+			await refreshLiveState();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to reject booking right now.');
+			await refreshLiveState();
+		} finally {
+			rejectingBookingId = null;
+		}
 	}
-
-	// ─── Form result effects ──────────────────────────────────────────────────────────
-	$effect(() => {
-		const r = toggleDriverAvailability.result as {
-			success?: boolean;
-			error?: string;
-			isAvailable?: boolean;
-		} | null;
-		if (!r) return;
-		if (r.success) {
-			void (async () => {
-				if (r.isAvailable === false) {
-					ongoingRide = null;
-					bookings = [];
-					driverLocation = null;
-					stopPoll();
-					stopWatch();
-					pageState = 'offline';
-					lastRideEndTime = Date.now();  // Stale ride-end protection: ignore queries for 3s
-				}
-				await refreshBootstrap();
-				if (r.isAvailable === true) {
-					routes = [];
-					showStartSheet = false;
-				}
-			})();
-		} else if (r.error) errorMsg = r.error;
-	});
-
-	$effect(() => {
-		const r = startRide.result as { success?: boolean; error?: string } | null;
-		if (!r) return;
-		if (r === lastSeenStartRideResult) return;
-		lastSeenStartRideResult = r;
-		if (r.success) {
-			showEndRideModal = false;
-			void (async () => {
-				await refreshBootstrap();
-				pageState = 'driving';
-				showStartSheet = false;
-				startPoll();
-				startWatch();
-			})();
-		} else if (r.error) errorMsg = r.error;
-	});
-
-	$effect(() => {
-		const r = endRide.result as {
-			success?: boolean;
-			error?: string;
-			autoAlightedCount?: number;
-		} | null;
-		if (!r) return;
-		if (r === lastSeenEndRideResult) return;
-		lastSeenEndRideResult = r;
-		if (r.success) {
-			showEndRideModal = false;
-			ongoingRide = null;
-			bookings = [];
-			driverLocation = null;
-			endRidePayloadId = '';
-			errorMsg = '';
-			stopPoll();
-			stopWatch();
-			pageState = 'offline';
-			startVehicleId = '';
-			startRouteId = '';
-			selectedRouteId = '';
-			lastRideEndTime = Date.now();  // Stale ride-end protection: ignore queries for 3s
-			void (async () => {
-				await refreshBootstrap();
-			})();
-		} else if (r.error) {
-			showEndRideModal = false;
-			errorMsg = r.error;
-		}
-	});
-
-	$effect(() => {
-		const ar = acceptBooking.result as { success?: boolean; error?: string } | null;
-		const cr = completeBooking.result as { success?: boolean; error?: string } | null;
-		const rr = rejectBooking.result as { success?: boolean; error?: string } | null;
-
-		if (ar?.success || cr?.success || rr?.success) {
-			void refreshLiveState();
-		}
-
-		if (ar && ar !== lastSeenAcceptResult) {
-			lastSeenAcceptResult = ar;
-			acceptingBookingId = null;
-		}
-		if (ar?.error) {
-			errorMsg = ar.error;
-			acceptingBookingId = null;
-			void refreshLiveState();
-		}
-
-		if (cr && cr !== lastSeenCompleteResult) {
-			lastSeenCompleteResult = cr;
-			completingBookingId = null;
-		}
-		if (cr?.error) {
-			errorMsg = cr.error;
-			completingBookingId = null;
-			void refreshLiveState();
-		}
-
-		if (rr && rr !== lastSeenRejectResult) {
-			lastSeenRejectResult = rr;
-			rejectingBookingId = null;
-		}
-		if (rr?.error) {
-			errorMsg = rr.error;
-			rejectingBookingId = null;
-			void refreshLiveState();
-		}
-	});
 
 	// ─── Derived ─────────────────────────────────────────────────────────────────
 	let pendingBookings = $derived(bookings.filter((b) => b.status === 'pending'));
@@ -542,7 +517,7 @@
 				iconAnchor: [16, 32] as [number, number]
 			}))
 	);
-	let isEndingRide = $derived(endRide.pending > 0);
+
 
 	// ─── Static marker HTML ───────────────────────────────────────────────────────
 	const SELF_MARKER_HTML = `
@@ -555,35 +530,6 @@
 			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-round-icon lucide-user-round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
 		</div>`;
 </script>
-
-<!-- ─── Hidden forms (SvelteKit form actions) ──────────────────────────────── -->
-<form bind:this={toggleAvailForm} {...toggleDriverAvailability} class="hidden"></form>
-
-<form bind:this={updateLocForm} {...updateDriverLocation} class="hidden">
-	<input type="hidden" name="latitude" value={locLat} />
-	<input type="hidden" name="longitude" value={locLng} />
-</form>
-
-<form bind:this={startRideForm} {...startRide} class="hidden">
-	<input type="hidden" name="vehicleId" value={startVehicleId} />
-	<input type="hidden" name="routeId" value={startRouteId} />
-</form>
-
-<form bind:this={endRideForm} {...endRide} class="hidden">
-	<input type="hidden" name="rideId" value={endRidePayloadId} />
-</form>
-
-<form bind:this={acceptForm} {...acceptBooking} class="hidden">
-	<input type="hidden" name="bookingId" value={acceptId} />
-</form>
-
-<form bind:this={completeForm} {...completeBooking} class="hidden">
-	<input type="hidden" name="bookingId" value={completeId} />
-</form>
-
-<form bind:this={rejectForm} {...rejectBooking} class="hidden">
-	<input type="hidden" name="bookingId" value={rejectId} />
-</form>
 
 <!-- ─── Root ──────────────────────────────────────────────────────────────── -->
 <div class="driver-root">
@@ -688,9 +634,9 @@
 							type="button"
 							class="outline-btn"
 							onclick={handleToggleAvailability}
-							disabled={toggleDriverAvailability.pending > 0}
+							disabled={isTogglingAvailability}
 						>
-							{toggleDriverAvailability.pending > 0 ? 'Updating…' : 'Go Online'}
+							{isTogglingAvailability ? 'Updating…' : 'Go Online'}
 						</button>
 					{:else}
 						<button
@@ -866,9 +812,9 @@
 				type="button"
 				class="primary-btn"
 				onclick={handleStartRide}
-				disabled={!selectedRouteId || startRide.pending > 0 || routes.length === 0}
+				disabled={!selectedRouteId || isStartingRide || routes.length === 0}
 			>
-				{startRide.pending > 0 ? 'Starting…' : 'Start Ride'}
+				{isStartingRide ? 'Starting…' : 'Start Ride'}
 			</button>
 			<button type="button" class="ghost-btn" onclick={() => (showStartSheet = false)}
 				>Cancel</button
@@ -935,9 +881,6 @@
 		position: absolute;
 		inset: 0;
 		z-index: 1;
-	}
-	.hidden {
-		display: none !important;
 	}
 	@keyframes blink {
 		0%,
@@ -1052,16 +995,6 @@
 		padding: 0.75rem 1rem;
 		margin-bottom: 1rem;
 	}
-	.vehicle-icon {
-		width: 36px;
-		height: 36px;
-		background: #e2e8f0;
-		border-radius: 0.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
 	.vehicle-info {
 		flex: 1;
 	}
@@ -1149,14 +1082,7 @@
 		margin: 0 0 0.25rem;
 		letter-spacing: -0.02em;
 	}
-	.dir-tag {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: #475569;
-		background: #f1f5f9;
-		padding: 0.2rem 0.5rem;
-		border-radius: 0.375rem;
-	}
+
 	.end-btn {
 		padding: 0.5rem 0.875rem;
 		background: #fef2f2;
@@ -1385,24 +1311,6 @@
 		z-index: 40;
 		backdrop-filter: blur(2px);
 	}
-	.overlay-passive {
-		pointer-events: none;
-	}
-
-	/* ── Incoming popup ── */
-	.incoming-popup {
-		position: fixed;
-		left: 1rem;
-		right: 1rem;
-		top: 5.75rem;
-		background: white;
-		border: 1px solid #fcd34d;
-		border-radius: 1rem;
-		padding: 1rem;
-		box-shadow: 0 18px 45px rgba(15, 23, 42, 0.25);
-		z-index: 43;
-		animation: popIn 0.2s ease-out;
-	}
 	@keyframes popIn {
 		from {
 			opacity: 0;
@@ -1412,61 +1320,6 @@
 			opacity: 1;
 			transform: translateY(0) scale(1);
 		}
-	}
-	.inc-kicker {
-		margin: 0 0 0.25rem;
-		font-size: 0.72rem;
-		font-weight: 800;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: #b45309;
-	}
-	.inc-title {
-		margin: 0;
-		font-size: 1.1rem;
-		font-weight: 800;
-		color: #0f172a;
-	}
-	.inc-sub {
-		margin: 0.2rem 0 0.9rem;
-		font-size: 0.85rem;
-		color: #475569;
-	}
-	.inc-actions {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-	}
-	.inc-reject,
-	.inc-accept {
-		padding: 0.7rem;
-		border-radius: 0.65rem;
-		border: none;
-		font-family: 'Outfit', sans-serif;
-		font-size: 0.9rem;
-		font-weight: 700;
-		cursor: pointer;
-	}
-	.inc-reject {
-		background: #fee2e2;
-		color: #b91c1c;
-	}
-	.inc-accept {
-		background: #dcfce7;
-		color: #166534;
-	}
-	.inc-later {
-		width: 100%;
-		margin-top: 0.55rem;
-		padding: 0.55rem;
-		border: 1px solid #e2e8f0;
-		border-radius: 0.65rem;
-		font-family: 'Outfit', sans-serif;
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: #64748b;
-		background: white;
-		cursor: pointer;
 	}
 
 	/* ── Action sheets ── */
@@ -1552,29 +1405,6 @@
 	}
 	.route-opt.selected .route-opt-dist {
 		color: #3b82f6;
-	}
-
-	.dir-toggle {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-	}
-	.dir-btn {
-		padding: 0.75rem;
-		background: #f8fafc;
-		border: 1.5px solid #e2e8f0;
-		border-radius: 0.625rem;
-		font-family: 'Outfit', sans-serif;
-		font-size: 0.825rem;
-		font-weight: 600;
-		color: #64748b;
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-	.dir-btn.active {
-		background: #eff6ff;
-		border-color: #3b82f6;
-		color: #1d4ed8;
 	}
 
 	/* ── Buttons ── */
