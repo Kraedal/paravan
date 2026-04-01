@@ -6,6 +6,7 @@
 
 	let formEl = $state<HTMLFormElement | null>(null);
 	let routeName = $state('');
+	let didSubmit = $state(false);
 	let routeCoords = $state<{
 		originLatitude: number;
 		originLongitude: number;
@@ -17,17 +18,16 @@
 	type CreateRouteResult = { success?: boolean; error?: string };
 
 	$effect(() => {
+		if (!didSubmit) return;
+
 		const result = createRoute.result as CreateRouteResult | null;
 		if (!result?.success) return;
 
-		void invalidateAll();
+		didSubmit = false;
 
-		// Navigate to routes page after successful submission
-		const timeout = setTimeout(() => {
+		void invalidateAll().then(() => {
 			goto(resolve('/cooperative/routes'));
-		}, 500);
-
-		return () => clearTimeout(timeout);
+		});
 	});
 
 	function handleRouteChange(
@@ -51,7 +51,14 @@
 
 </script>
 
-<form bind:this={formEl} {...createRoute} class="space-y-4">
+<form
+	bind:this={formEl}
+	{...createRoute}
+	onsubmit={() => {
+		didSubmit = true;
+	}}
+	class="space-y-4"
+>
 	<input
 		{...createRoute.fields.name.as('text')}
 		type="text"
