@@ -81,7 +81,9 @@
 			renderDestinationMarker();
 			renderLiveMarker();
 			renderOverlayMarkers();
-			void renderRoute();
+			if (destination) {
+				void renderRoute(marker, destination, useOsrm);
+			}
 		})();
 
 		return () => {
@@ -90,18 +92,32 @@
 		};
 	});
 
-	// Re-render route + markers when core props change
+	// Pan main view when destination routing is not active.
 	$effect(() => {
-		void [marker, destination, useOsrm, center, zoom];
+		void [marker, destination, followLiveMarker];
 		if (!map || !L) return;
-		
-		// Pan to marker if not following live marker and no destination
+
 		if (!followLiveMarker && !destination) {
 			map.setView(marker, map.getZoom());
 		}
-		
+	});
+
+	// Update destination marker and route only when route inputs change.
+	$effect(() => {
+		void [destination, useOsrm];
+		if (!map || !L) return;
+
 		renderDestinationMarker();
-		void renderRoute();
+
+		if (!destination) {
+			routeAbortController?.abort();
+			routeAbortController = null;
+			routeLine?.remove();
+			routeLine = null;
+			return;
+		}
+
+		void renderRoute(marker, destination, useOsrm);
 	});
 
 	// Live marker updates independently — no route re-fetch needed
@@ -155,24 +171,25 @@
 		}
 	}
 
-	async function renderRoute() {
+	async function renderRoute(
+		routeStart: [number, number],
+		routeEnd: [number, number],
+		preferOsrm: boolean
+	) {
 		if (!map || !L) return;
 
 		const currentToken = ++routeRenderToken;
 		routeAbortController?.abort();
 		routeAbortController = null;
-		routeLine?.remove();
-		routeLine = null;
 
-		if (!destination) return;
-
-		if (useOsrm) {
+		if (preferOsrm) {
 			routeAbortController = new AbortController();
 			try {
 				const res = await fetch(
-					`https://router.project-osrm.org/route/v1/driving/${marker[1]},${marker[0]};${destination[1]},${destination[0]}?overview=full&geometries=geojson`,
+					`https://router.project-osrm.org/route/v1/driving/${routeStart[1]},${routeStart[0]};${routeEnd[1]},${routeEnd[0]}?overview=full&geometries=geojson`,
 					{ signal: routeAbortController.signal }
 				);
+				if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
 				const data = await res.json();
 
 				if (currentToken !== routeRenderToken) return;
@@ -181,30 +198,37 @@
 					const latlngs: [number, number][] = data.routes[0].geometry.coordinates.map(
 						([lon, lat]: [number, number]) => [lat, lon]
 					);
-					routeLine = L.polyline(latlngs, {
+					const nextRouteLine = L.polyline(latlngs, {
 						color: '#2563eb',
 						weight: 4,
 						opacity: 0.85
 					}).addTo(map);
-					map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+					routeLine?.remove();
+					routeLine = nextRouteLine;
+					map.fitBounds(nextRouteLine.getBounds(), { padding: [60, 60] });
 					return;
 				}
-			} catch {
+			} catch (error) {
 				if (currentToken !== routeRenderToken) return;
-				// fall through to straight line
+				if (error instanceof DOMException && error.name === 'AbortError') {
+					return;
+				}
+				// fall through to straight-line fallback
 			}
 		}
 
 		if (currentToken !== routeRenderToken) return;
 
 		// Straight line fallback
-		routeLine = L.polyline([marker, destination], {
+		const fallbackLine = L.polyline([routeStart, routeEnd], {
 			color: '#2563eb',
 			weight: 4,
 			opacity: 0.85,
 			dashArray: '8 6'
 		}).addTo(map);
-		map.fitBounds(L.latLngBounds([marker, destination]), { padding: [60, 60] });
+		routeLine?.remove();
+		routeLine = fallbackLine;
+		map.fitBounds(L.latLngBounds([routeStart, routeEnd]), { padding: [60, 60] });
 	}
 
 	function renderLiveMarker() {

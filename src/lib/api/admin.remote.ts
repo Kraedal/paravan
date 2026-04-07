@@ -423,9 +423,33 @@ export const getCooperativeDashboard = query(async () => {
 		where: eq(cooperative.userId, admin.id)
 	});
 
+	const driverLocations = cooperativeData
+		? await db.query.driver.findMany({
+				where: eq(driver.cooperativeId, cooperativeData.id),
+				with: {
+					vehicle: true
+				}
+			})
+		: [];
+
 	return {
 		user: admin,
-		cooperative: cooperativeData
+		cooperative: cooperativeData,
+		driverLocations: driverLocations.map((d) => ({
+			id: d.id,
+			name: d.name,
+			latitude: d.latitude,
+			longitude: d.longitude,
+			lastLocationUpdate: d.lastLocationUpdate,
+			isAvailable: d.isAvailable,
+			vehicle: d.vehicle
+				? {
+					id: d.vehicle.id,
+					plateNumber: d.vehicle.plateNumber,
+					model: d.vehicle.model
+				}
+				: null
+		}))
 	};
 });
 

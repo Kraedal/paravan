@@ -11,6 +11,7 @@
 	import DemandHeatmap from '$lib/components/dashboard/DemandHeatmap.svelte';
 	import DemandForecast from '$lib/components/dashboard/DemandForecast.svelte';
 	import Suggestions from '$lib/components/dashboard/Suggestions.svelte';
+	import DriverMap from '$lib/components/dashboard/DriverMap.svelte';
 
 	// ─── Queries ─────────────────────────────────────────────────────────────────
 	const dashboard = getCooperativeDashboard();
@@ -138,6 +139,9 @@
 
 	<!-- Demand heatmap -->
 	<DemandHeatmap patterns={heatmapData} />
+
+	<!-- Driver map -->
+	<DriverMap drivers={dashboard.current.driverLocations} />
 
 	<!-- Demand table + suggestions -->
 	{#if demand.ready && demand.current?.summary}
