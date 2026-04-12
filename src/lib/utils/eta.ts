@@ -13,7 +13,7 @@ const AVG_SPEED_KPH = 60;
 
 export function calcETA(distanceKm: number): string {
 	const minutes = (distanceKm / AVG_SPEED_KPH) * 60;
-	if (minutes < 1) return 'Less than a minute';
+	if (minutes < 1) return '< 1 min';
 	if (minutes < 60) return `${Math.ceil(minutes)} min`;
 	const hrs = Math.floor(minutes / 60);
 	const mins = Math.ceil(minutes % 60);

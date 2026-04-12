@@ -62,6 +62,31 @@
 
 	let routeAbortController: AbortController | null = null;
 	let routeRenderToken = 0;
+	let lastRouteSignature: string | null = null;
+	let userViewportLockUntil = 0;
+	const USER_VIEWPORT_LOCK_MS = 12000; // Milliseconds to keep the viewport locked after user interaction; 12 seconds
+	const userViewportEvents: Array<keyof HTMLElementEventMap> = [
+		'mousedown',
+		'touchstart',
+		'wheel',
+		'keydown'
+	];
+
+	function toCoordinateKey(coords: [number, number]): string {
+		return `${coords[0].toFixed(6)},${coords[1].toFixed(6)}`;
+	}
+
+	function routeSignature(routeStart: [number, number], routeEnd: [number, number], preferOsrm: boolean) {
+		return `${toCoordinateKey(routeStart)}|${toCoordinateKey(routeEnd)}|${preferOsrm ? 'osrm' : 'line'}`;
+	}
+
+	function lockViewportFromUserInput() {
+		userViewportLockUntil = Date.now() + USER_VIEWPORT_LOCK_MS;
+	}
+
+	function canAutoAdjustViewport() {
+		return Date.now() >= userViewportLockUntil;
+	}
 
 	onMount(() => {
 		void (async () => {
@@ -78,6 +103,10 @@
 				attribution: '&copy; OpenStreetMap contributors'
 			}).addTo(map);
 
+			userViewportEvents.forEach((eventName) => {
+				mapElement.addEventListener(eventName, lockViewportFromUserInput, { passive: true });
+			});
+
 			renderDestinationMarker();
 			renderLiveMarker();
 			renderOverlayMarkers();
@@ -88,6 +117,9 @@
 
 		return () => {
 			routeAbortController?.abort();
+			userViewportEvents.forEach((eventName) => {
+				mapElement.removeEventListener(eventName, lockViewportFromUserInput);
+			});
 			map?.remove();
 		};
 	});
@@ -97,7 +129,7 @@
 		void [marker, destination, followLiveMarker];
 		if (!map || !L) return;
 
-		if (!followLiveMarker && !destination) {
+		if (!followLiveMarker && !destination && canAutoAdjustViewport()) {
 			map.setView(marker, map.getZoom());
 		}
 	});
@@ -114,8 +146,15 @@
 			routeAbortController = null;
 			routeLine?.remove();
 			routeLine = null;
+			lastRouteSignature = null;
 			return;
 		}
+
+		const nextRouteSignature = routeSignature(marker, destination, useOsrm);
+		if (nextRouteSignature === lastRouteSignature) {
+			return;
+		}
+		lastRouteSignature = nextRouteSignature;
 
 		void renderRoute(marker, destination, useOsrm);
 	});
@@ -205,7 +244,9 @@
 					}).addTo(map);
 					routeLine?.remove();
 					routeLine = nextRouteLine;
-					map.fitBounds(nextRouteLine.getBounds(), { padding: [60, 60] });
+					if (canAutoAdjustViewport()) {
+						map.fitBounds(nextRouteLine.getBounds(), { padding: [60, 60] });
+					}
 					return;
 				}
 			} catch (error) {
@@ -228,7 +269,9 @@
 		}).addTo(map);
 		routeLine?.remove();
 		routeLine = fallbackLine;
-		map.fitBounds(L.latLngBounds([routeStart, routeEnd]), { padding: [60, 60] });
+		if (canAutoAdjustViewport()) {
+			map.fitBounds(L.latLngBounds([routeStart, routeEnd]), { padding: [60, 60] });
+		}
 	}
 
 	function renderLiveMarker() {
@@ -257,7 +300,7 @@
 				.bindPopup(liveMarkerLabel);
 		}
 
-		if (followLiveMarker) {
+		if (followLiveMarker && canAutoAdjustViewport()) {
 			map.setView(liveMarker, map.getZoom());
 		}
 	}

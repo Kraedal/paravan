@@ -658,7 +658,7 @@
 						onclick={handleAlightSelf}
 						disabled={alightingBookingId !== null}
 					>
-						{alightingBookingId ? 'Alighting...' : "I'm Alighting"}
+						{alightingBookingId ? '...' : "PARA!"}
 					</button>
 				{/if}
 			</div>

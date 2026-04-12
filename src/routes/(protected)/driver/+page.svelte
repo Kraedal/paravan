@@ -14,6 +14,7 @@
 		updateDriverLocation,
 		toggleDriverAvailability
 	} from '$lib/api/driver.remote';
+	import { haversineDistance, calcETA } from '$lib/utils/eta';
 	import { CarTaxiFront, Check, Play, UsersRound, X } from '@lucide/svelte';
 
 	// ─── Types ────────────────────────────────────────────────────────────────────
@@ -128,6 +129,51 @@
 	function getErrorMessage(error: unknown, fallback: string) {
 		if (error instanceof Error && error.message) return error.message;
 		return fallback;
+	}
+
+	function getDriverReferenceLocation(): [number, number] | null {
+		if (isValidLatLng(driverLocation)) return driverLocation;
+		if (profile?.latitude != null && profile?.longitude != null) {
+			const coords: [number, number] = [profile.latitude, profile.longitude];
+			return isValidLatLng(coords) ? coords : null;
+		}
+		return null;
+	}
+
+	function getPassengerTargetLocation(booking: Booking): [number, number] | null {
+		if (booking.passenger.latitude != null && booking.passenger.longitude != null) {
+			const passengerCoords: [number, number] = [booking.passenger.latitude, booking.passenger.longitude];
+			if (isValidLatLng(passengerCoords)) return passengerCoords;
+		}
+
+		if (booking.boardingLatitude != null && booking.boardingLongitude != null) {
+			const boardingCoords: [number, number] = [booking.boardingLatitude, booking.boardingLongitude];
+			if (isValidLatLng(boardingCoords)) return boardingCoords;
+		}
+
+		return null;
+	}
+
+	function formatDistance(distanceKm: number): string {
+		if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`;
+		return `${distanceKm.toFixed(1)} km`;
+	}
+
+	function getPassengerProximityLabel(booking: Booking): string | null {
+		const driverCoords = getDriverReferenceLocation();
+		const passengerCoords = getPassengerTargetLocation(booking);
+		if (!driverCoords || !passengerCoords) return null;
+
+		const distanceKm = haversineDistance(driverCoords, passengerCoords);
+		return `${formatDistance(distanceKm)} • ETA ${calcETA(distanceKm)}`;
+	}
+
+	function getMidpoint(a: [number, number], b: [number, number]): [number, number] {
+		return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+	}
+
+	function createEtaBadgeHtml(passengerName: string, proximityLabel: string): string {
+		return `<div style="display:inline-flex;flex-direction:column;gap:1px;padding:2px 4px;background:rgba(15,23,42,0.88);color:#f8fafc;border:1px solid rgba(148,163,184,0.4);border-radius:10px;box-shadow:0 4px 14px rgba(2,6,23,0.25);font-family:'Outfit',sans-serif;line-height:1.2;white-space:nowrap"><span style="font-size:10px;font-weight:700;opacity:.85">${passengerName}</span><span style="font-size:11px;font-weight:700">${proximityLabel}</span></div>`;
 	}
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -350,6 +396,11 @@
 		}
 
 		errorMsg = '';
+		if (onboardBookings.length === 0) {
+			showEndRideModal = false;
+			void submitEndRide();
+			return;
+		}
 		showEndRideModal = true;
 	}
 
@@ -504,19 +555,42 @@
 		return [14.5995, 120.9842];
 	});
 	let passengerMarkers = $derived(
-		bookings
-			.filter(
-				(b) => b.status === 'pending' && b.boardingLatitude != null && b.boardingLongitude != null
-			)
-			.map((b) => ({
-				id: `pending-${b.id}`,
-				position: [b.boardingLatitude!, b.boardingLongitude!] as [number, number],
-				label: `${b.passenger.user.name} waiting`,
-				html: PASSENGER_MARKER_HTML,
-				iconSize: [32, 32] as [number, number],
-				iconAnchor: [16, 32] as [number, number]
-			}))
+		pendingBookings
+			.map((b) => {
+				const target = getPassengerTargetLocation(b);
+				if (!target) return null;
+				return {
+					id: `pending-${b.id}`,
+					position: target,
+					label: `${b.passenger.user.name} waiting`,
+					html: PASSENGER_MARKER_HTML,
+					iconSize: [32, 32] as [number, number],
+					iconAnchor: [16, 32] as [number, number]
+				};
+			})
+			.filter((marker): marker is NonNullable<typeof marker> => marker !== null)
 	);
+	let passengerEtaMarkers = $derived.by(() => {
+		const driverCoords = getDriverReferenceLocation();
+		if (!driverCoords) return [];
+
+		return pendingBookings
+			.map((b) => {
+				const target = getPassengerTargetLocation(b);
+				const proximityLabel = getPassengerProximityLabel(b);
+				if (!target || !proximityLabel) return null;
+
+				return {
+					id: `pending-eta-${b.id}`,
+					position: getMidpoint(driverCoords, target),
+					html: createEtaBadgeHtml(b.passenger.user.name, proximityLabel),
+					iconSize: [150, 40] as [number, number],
+					iconAnchor: [75, 20] as [number, number]
+				};
+			})
+			.filter((marker): marker is NonNullable<typeof marker> => marker !== null);
+	});
+	let mapOverlays = $derived([...passengerMarkers, ...passengerEtaMarkers]);
 
 
 	// ─── Static marker HTML ───────────────────────────────────────────────────────
@@ -545,7 +619,7 @@
 			liveMarker={driverLocation}
 			liveMarkerLabel="You are here"
 			liveMarkerHtml={SELF_MARKER_HTML}
-			overlayMarkers={pageState === 'driving' ? passengerMarkers : []}
+			overlayMarkers={pageState === 'driving' ? mapOverlays : []}
 			followLiveMarker={pageState === 'driving' && driverLocation !== null}
 			fullBleed={true}
 			height="100dvh"
@@ -699,11 +773,14 @@
 					</div>
 					<ul class="booking-list">
 						{#each pendingBookings as b (b.id)}
+							{@const proximityLabel = getPassengerProximityLabel(b)}
 							<li class="booking-card pending">
 								<div class="avatar">{b.passenger.user.name.charAt(0).toUpperCase()}</div>
 								<div class="pax-info">
 									<span class="pax-name">{b.passenger.user.name}</span>
-									<span class="pax-meta">Requesting pickup</span>
+									<span class="pax-meta"
+										>Requesting pickup{proximityLabel ? ` • ${proximityLabel}` : ''}</span
+									>
 								</div>
 								<div class="card-actions">
 									<button
