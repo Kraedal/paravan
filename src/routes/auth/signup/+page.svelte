@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { passengerSignUp } from '$lib/api/auth.remote';
-	import logo from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/paralogo.png';
 	import stop from '$lib/assets/paraa.svg'
 </script>
 

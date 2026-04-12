@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { login } from '$lib/api/auth.remote';
-	import logo from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/paralogo.png';
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { ChevronLeft } from '@lucide/svelte';

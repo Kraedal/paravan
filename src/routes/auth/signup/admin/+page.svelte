@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { cooperativeSignUp } from '$lib/api/auth.remote';
-	import logo from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/paralogo.png';
 	import stop from '$lib/assets/building.svg'
 </script>
 
@@ -20,7 +20,7 @@
 			</div>
 		</div>
 
-		<h1 class="mb-1 text-center text-2xl font-semibold">Join Paravan</h1>
+		<h1 class="mb-1 text-center text-2xl font-semibold">Join PARA</h1>
 		<p class="mb-6 text-center text-sm text-gray-500">Register your cooperative</p>
 
 		<form {...cooperativeSignUp} class="space-y-4">

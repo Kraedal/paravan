@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import logo from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/paralogo.png';
 	import herovan from '$lib/assets/herovan.png';
+
 
 	type BeforeInstallPromptEvent = Event & {
 		prompt: () => Promise<void>;
@@ -90,8 +91,8 @@
 
 	<main style="background-image: url({herovan}); background-size: cover; background-position: center;" class="flex flex-1 items-center justify-center px-6">
 		<section class=" max-w-7xl h-[calc(100vh-8rem)] flex flex-col items-start justify-center text-left gap-6 px-6 " >
-			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">Para</p>van</h1>
-			<p class="max-w-xl text-lg text-gray-600">Your reliable van transportation service across the Philippines. Book a ride in seconds and travel with confidence.</p>
+			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">PARA</p></h1>
+			<p class="max-w-xl text-lg text-gray-600">No more guessing. No more waiting. <br />Smarter, coordinated van transport across Cagayan.</p>
 			<div class="flex flex-row gap-4 ">
 	
 				<button

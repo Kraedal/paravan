@@ -11,6 +11,8 @@
 		acceptBooking,
 		completeBooking,
 		rejectBooking,
+		manualBoardPassenger,
+		manualAlightPassenger,
 		updateDriverLocation,
 		toggleDriverAvailability
 	} from '$lib/api/driver.remote';
@@ -108,6 +110,8 @@
 	let isStartingRide = $state(false);
 	let isEndingRide = $state(false);
 	let isUpdatingLocation = $state(false);
+	let isAddingManualPassenger = $state(false);
+	let isRemovingManualPassenger = $state(false);
 
 	// Live location
 	let driverLocation: [number, number] | null = $state(null);
@@ -520,16 +524,59 @@
 		}
 	}
 
+	async function handleManualBoardPassenger() {
+		if (isAddingManualPassenger) return;
+		isAddingManualPassenger = true;
+		errorMsg = '';
+
+		try {
+			const result = (await manualBoardPassenger({})) as { success?: boolean; error?: string };
+			if (!result?.success) {
+				errorMsg = result?.error ?? 'Unable to add passenger right now.';
+				return;
+			}
+			await refreshLiveState();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to add passenger right now.');
+		} finally {
+			isAddingManualPassenger = false;
+		}
+	}
+
+	async function handleManualAlightPassenger() {
+		if (isRemovingManualPassenger) return;
+		isRemovingManualPassenger = true;
+		errorMsg = '';
+
+		try {
+			const result = (await manualAlightPassenger({})) as { success?: boolean; error?: string };
+			if (!result?.success) {
+				errorMsg = result?.error ?? 'Unable to remove passenger right now.';
+				return;
+			}
+			await refreshLiveState();
+		} catch (error) {
+			errorMsg = getErrorMessage(error, 'Unable to remove passenger right now.');
+		} finally {
+			isRemovingManualPassenger = false;
+		}
+	}
+
 	// ─── Derived ─────────────────────────────────────────────────────────────────
 	let pendingBookings = $derived(bookings.filter((b) => b.status === 'pending'));
 	let onboardBookings = $derived(bookings.filter((b) => b.status === 'onboard'));
-	let occupancy = $derived(onboardBookings.length);
+	let occupancy = $derived.by(() => {
+		const currentRide = ongoingRide;
+		if (currentRide?.occupiedSeats != null) return currentRide.occupiedSeats;
+		return onboardBookings.length;
+	});
 	let capacity = $derived.by(() => {
 		const currentRide = ongoingRide;
 		return (
 			currentRide?.totalSeats ?? currentRide?.vehicle?.capacity ?? profile?.vehicle?.capacity ?? 0
 		);
 	});
+	let manualPassengers = $derived(Math.max(0, occupancy - onboardBookings.length));
 	let occupancyPct = $derived(capacity > 0 ? (occupancy / capacity) * 100 : 0);
 	let activeRoute = $derived.by(() => {
 		const currentRide = ongoingRide;
@@ -763,6 +810,25 @@
 							style="width:{Math.min(occupancyPct, 100)}%"
 						></div>
 					</div>
+					<div class="manual-actions">
+						<button
+							type="button"
+							class="manual-btn add"
+							onclick={handleManualBoardPassenger}
+							disabled={isAddingManualPassenger || occupancy >= capacity}
+						>
+							{isAddingManualPassenger ? 'Adding…' : '+ Walk-in'}
+						</button>
+						<button
+							type="button"
+							class="manual-btn remove"
+							onclick={handleManualAlightPassenger}
+							disabled={isRemovingManualPassenger || manualPassengers <= 0}
+						>
+							{isRemovingManualPassenger ? 'Removing…' : '- Walk-in'}
+						</button>
+					</div>
+					<p class="manual-meta">Manual passengers: {manualPassengers}</p>
 				</div>
 
 				<!-- Pending -->
@@ -1231,6 +1297,48 @@
 	}
 	.occ-fill.full {
 		background: #ef4444;
+	}
+	.manual-actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+	.manual-btn {
+		border: 1px solid #cbd5e1;
+		border-radius: 0.5rem;
+		background: white;
+		padding: 0.45rem 0.6rem;
+		font-family: 'Outfit', sans-serif;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.manual-btn.add {
+		color: #166534;
+		border-color: #86efac;
+		background: #f0fdf4;
+	}
+	.manual-btn.add:hover:not(:disabled) {
+		background: #dcfce7;
+	}
+	.manual-btn.remove {
+		color: #9a3412;
+		border-color: #fdba74;
+		background: #fff7ed;
+	}
+	.manual-btn.remove:hover:not(:disabled) {
+		background: #ffedd5;
+	}
+	.manual-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+	.manual-meta {
+		margin: 0.4rem 0 0;
+		font-size: 0.74rem;
+		color: #64748b;
 	}
 
 	/* ── Bookings ── */

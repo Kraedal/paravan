@@ -7,6 +7,7 @@
 		id: string;
 		endAt: string | Date | null;
 		availableSeats: number;
+		manualCompletedPassengers: number;
 		vehicle: { capacity: number; plateNumber: string; model: string } | null;
 		route: { name: string } | null;
 		bookings: Array<{ status: 'pending' | 'onboard' | 'completed' | 'cancelled' }>;
@@ -46,18 +47,21 @@
 	}
 
 	function servedPassengersCount(ride: RideHistoryItem) {
-		return ride.bookings.filter((b) => b.status === 'completed').length;
+		return (
+			ride.bookings.filter((b) => b.status === 'completed').length +
+			(ride.manualCompletedPassengers ?? 0)
+		);
 	}
 </script>
 
 <div class="mt-20 min-h-screen bg-slate-50 p-4 sm:p-6">
 	<div class="mx-auto max-w-3xl">
 		<div class="mb-6 flex items-center justify-between">
-			<h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Past History</h1>
+			<h1 class="text-2xl font-extrabold tracking-tight text-slate-900">History</h1>
 			<a
 				href={resolve('/driver')}
 				class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-				>Back to Driver</a
+				>Back to Home</a
 			>
 		</div>
 
