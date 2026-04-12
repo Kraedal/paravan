@@ -23,7 +23,7 @@
 	<button
 		type="button"
 		onclick={() => goto(resolve('/cooperative/routes/create'))}
-		class="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-2 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+		class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-2 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 	>
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -86,6 +86,14 @@
 						<td class="px-6 py-4 text-sm text-gray-600">{route.distance.toFixed(2)} km</td>
 						<td class="px-6 py-4 text-sm text-gray-600">
 							<div class="flex items-center gap-2">
+								<button
+									type="button"
+									onclick={() => goto(resolve(`/cooperative/routes/${route.id}/edit`))}
+									class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+								>
+									Edit
+								</button>
+
 								<button
 									type="button"
 									onclick={() => goto(resolve(`/cooperative/routes/${route.id}`))}

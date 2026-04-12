@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import type { Pathname } from '$app/types';
+	import logo from '$lib/assets/paralogo.png';
 
 	let { children } = $props();
 
@@ -41,11 +42,14 @@
 <div class="z-1000 border-b border-gray-200 bg-white shadow-sm">
 	<div class="px-4 sm:px-6 md:mx-auto">
 		<div class="flex h-16 items-center justify-between">
-			<h1 class="text-2xl font-bold text-gray-900">PARAVAN</h1>
+			<div class="flex items-center gap-4">
+			<img src={logo} alt="Para logo" class="h-8 w-8">
+			<h1 class="text-2xl font-bold text-blue-900">PARA</h1>
+			</div>
 			<button
 				type="button"
 				onclick={() => (isOpen = true)}
-				class="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+				class="inline-flex items-center justify-center rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-950 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 			>
 				Logout
 			</button>
@@ -84,7 +88,7 @@
 				</button>
 				<button
 					type="submit"
-					class="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+					class="flex-1 rounded-lg bg-blue-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-950 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 				>
 					Continue
 				</button>

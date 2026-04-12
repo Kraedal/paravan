@@ -157,7 +157,12 @@ export const endRide = command(endRideSchema, async (data) => {
 			const targetRide = await tx.query.ride.findFirst({
 				where: (r, { and, eq }) =>
 					and(eq(r.id, data.rideId), eq(r.driverId, driverProfile.id), eq(r.status, 'ongoing')),
-				columns: { id: true }
+				columns: { id: true, availableSeats: true },
+				with: {
+					vehicle: {
+						columns: { capacity: true }
+					}
+				}
 			});
 
 			if (!targetRide) {
@@ -171,10 +176,18 @@ export const endRide = command(endRideSchema, async (data) => {
 				.where(and(eq(booking.rideId, data.rideId), eq(booking.status, 'onboard')))
 				.returning({ id: booking.id });
 
+			const capacity = targetRide.vehicle?.capacity ?? 0;
+			const occupiedSeats = Math.max(0, capacity - targetRide.availableSeats);
+			const manualOnboardAtEnd = Math.max(0, occupiedSeats - autoAlighted.length);
+
 			// End the specific ride
 			const endedRide = await tx
 				.update(ride)
-				.set({ status: 'completed', endAt: endTime })
+				.set({
+					status: 'completed',
+					endAt: endTime,
+					manualCompletedPassengers: sql`${ride.manualCompletedPassengers} + ${manualOnboardAtEnd}`
+				})
 				.where(
 					and(
 						eq(ride.id, data.rideId),
@@ -376,6 +389,71 @@ export const rejectBooking = command(bookingActionSchema, async (data) => {
 		.returning({ id: booking.id });
 
 	if (!updated.length) throw error(409, 'Booking not found or already actioned');
+
+	return { success: true };
+});
+
+export const manualBoardPassenger = command(z.object({}), async () => {
+	const driverProfile = await requireDriver();
+
+	const currentRide = await db.query.ride.findFirst({
+		where: (r, { eq, and }) => and(eq(r.driverId, driverProfile.id), eq(r.status, 'ongoing')),
+		with: {
+			vehicle: true
+		}
+	});
+
+	if (!currentRide) {
+		return { success: false, error: 'No ongoing ride' };
+	}
+
+	if (currentRide.availableSeats <= 0) {
+		return { success: false, error: 'No available seats' };
+	}
+
+	await db
+		.update(ride)
+		.set({ availableSeats: sql`${ride.availableSeats} - 1` })
+		.where(and(eq(ride.id, currentRide.id), eq(ride.status, 'ongoing'), gt(ride.availableSeats, 0)));
+
+	return { success: true };
+});
+
+export const manualAlightPassenger = command(z.object({}), async () => {
+	const driverProfile = await requireDriver();
+
+	const currentRide = await db.query.ride.findFirst({
+		where: (r, { eq, and }) => and(eq(r.driverId, driverProfile.id), eq(r.status, 'ongoing')),
+		with: {
+			vehicle: true
+		}
+	});
+
+	if (!currentRide) {
+		return { success: false, error: 'No ongoing ride' };
+	}
+
+	const capacity = currentRide.vehicle?.capacity ?? 0;
+	const occupiedSeats = Math.max(0, capacity - currentRide.availableSeats);
+
+	const onboardCountRows = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(booking)
+		.where(and(eq(booking.rideId, currentRide.id), eq(booking.status, 'onboard')));
+	const onboardCount = Number(onboardCountRows[0]?.count ?? 0);
+	const manualOccupied = occupiedSeats - onboardCount;
+
+	if (manualOccupied <= 0) {
+		return { success: false, error: 'No manual passengers to remove' };
+	}
+
+	await db
+		.update(ride)
+		.set({
+			availableSeats: sql`${ride.availableSeats} + 1`,
+			manualCompletedPassengers: sql`${ride.manualCompletedPassengers} + 1`
+		})
+		.where(and(eq(ride.id, currentRide.id), eq(ride.status, 'ongoing')));
 
 	return { success: true };
 });

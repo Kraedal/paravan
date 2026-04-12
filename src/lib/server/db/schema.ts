@@ -153,6 +153,7 @@ export const ride = pgTable(
 
 		// NEW: Track live occupancy so waiting users know if there is space
 		availableSeats: integer('available_seats').notNull(),
+		manualCompletedPassengers: integer('manual_completed_passengers').default(0).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

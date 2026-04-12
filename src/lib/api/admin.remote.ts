@@ -535,6 +535,73 @@ export const getRoutes = query(async () => {
 	return routes;
 });
 
+export const updateRoute = form(updateRouteSchema, async (data) => {
+	try {
+		const admin = requireAdmin();
+
+		if (!data.routeId) {
+			throw new Error('Route ID is required');
+		}
+
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		const targetRoute = await db.query.route.findFirst({
+			where: and(eq(route.id, data.routeId), eq(route.cooperativeId, cooperativeData.id))
+		});
+
+		if (!targetRoute) {
+			throw new Error('Route not found in your cooperative');
+		}
+
+		const updateData: {
+			name?: string;
+			originLatitude?: number;
+			originLongitude?: number;
+			destinationLatitude?: number;
+			destinationLongitude?: number;
+			distance?: number;
+			direction?: 'northbound' | 'southbound';
+		} = {};
+
+		if (data.name !== undefined) updateData.name = data.name;
+		if (data.originLatitude !== undefined) updateData.originLatitude = data.originLatitude;
+		if (data.originLongitude !== undefined) updateData.originLongitude = data.originLongitude;
+		if (data.destinationLatitude !== undefined)
+			updateData.destinationLatitude = data.destinationLatitude;
+		if (data.destinationLongitude !== undefined)
+			updateData.destinationLongitude = data.destinationLongitude;
+		if (data.distance !== undefined) updateData.distance = data.distance;
+		if (data.direction !== undefined) updateData.direction = data.direction;
+
+		if (Object.keys(updateData).length === 0) {
+			return { success: true };
+		}
+
+		const updated = await db
+			.update(route)
+			.set(updateData)
+			.where(and(eq(route.id, data.routeId), eq(route.cooperativeId, cooperativeData.id)))
+			.returning({ id: route.id });
+
+		if (!updated.length) {
+			throw new Error('Route not found or no longer belongs to your cooperative');
+		}
+
+		return { success: true };
+	} catch (error) {
+		if (error instanceof Error) {
+			console.error('[updateRoute]', error);
+		}
+		return { success: false, error: 'An error occurred while updating the route' };
+	}
+});
+
 export const deleteRoute = form(updateRouteSchema, async (data) => {
 	// Implementation for deleting a route
 	try {

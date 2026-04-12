@@ -39,7 +39,7 @@
 	<button
 		type="button"
 		onclick={() => (isOpen = true)}
-		class="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-2 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+		class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-2 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 	>
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -241,7 +241,7 @@
 				>
 				<button
 					type="submit"
-					class="rounded-md border border-gray-300 bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none"
+					class="rounded-md border border-gray-300 bg-blue-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-800 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none"
 				>
 					Add</button
 				>
@@ -339,7 +339,7 @@
 				>
 				<button
 					type="submit"
-					class="rounded-md border border-gray-300 bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none"
+					class="rounded-md border border-gray-300 bg-blue-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-800 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none"
 				>
 					Save Changes</button
 				>

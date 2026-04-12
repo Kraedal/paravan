@@ -115,6 +115,9 @@
 		routes={analytics.current.fleet.totalRoutes}
 	/>
 
+	<!-- Driver map -->
+	<DriverMap drivers={dashboard.current.driverLocations} />
+
 	<!-- Alerts -->
 	<Alerts 
 		unassignedDrivers={analytics.current.flags.unassignedDrivers.length}
@@ -140,8 +143,7 @@
 	<!-- Demand heatmap -->
 	<DemandHeatmap patterns={heatmapData} />
 
-	<!-- Driver map -->
-	<DriverMap drivers={dashboard.current.driverLocations} />
+
 
 	<!-- Demand table + suggestions -->
 	{#if demand.ready && demand.current?.summary}

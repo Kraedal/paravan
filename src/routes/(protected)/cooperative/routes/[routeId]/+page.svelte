@@ -20,13 +20,24 @@
 		<h2 class="text-xl font-semibold text-gray-900">Route Details</h2>
 		<p class="mt-1 text-sm text-gray-500">View details for this cooperative route.</p>
 	</div>
-	<button
-		type="button"
-		onclick={() => goto(resolve('/cooperative/routes'))}
-		class="rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
-	>
-		<ChevronLeftIcon class="h-4 w-4" />
-	</button>
+	<div class="flex items-center gap-2">
+		{#if selectedRoute}
+			<button
+				type="button"
+				onclick={() => goto(resolve(`/cooperative/routes/${selectedRoute.id}/edit`))}
+				class="rounded-md border border-gray-300 bg-white px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+			>
+				Edit
+			</button>
+		{/if}
+		<button
+			type="button"
+			onclick={() => goto(resolve('/cooperative/routes'))}
+			class="rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+		>
+			<ChevronLeftIcon class="h-4 w-4" />
+		</button>
+	</div>
 </div>
 
 {#if routes.loading && !routes.ready}
