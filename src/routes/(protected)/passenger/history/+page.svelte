@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { getBookingHistory } from '$lib/api/passenger.remote';
+	import { formatUtcTimestamp } from '$lib/utils/format-timestamp';
 
 	type BookingHistoryItem = {
 		id: string;
@@ -36,12 +37,10 @@
 	}
 
 	function formatDate(value: string | Date) {
-		const date = value instanceof Date ? value : new Date(value);
-		if (Number.isNaN(date.getTime())) return 'Unknown date';
-		return new Intl.DateTimeFormat('en-PH', {
+		return formatUtcTimestamp(value, {
 			dateStyle: 'medium',
 			timeStyle: 'short'
-		}).format(date);
+		});
 	}
 </script>
 

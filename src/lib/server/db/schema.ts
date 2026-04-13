@@ -10,6 +10,7 @@ import {
 	integer,
 	date
 } from 'drizzle-orm/pg-core';
+import { getCurrentUtcDate } from '$lib/server/utils/date-utils';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -23,7 +24,7 @@ export const user = pgTable('user', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
-		.$onUpdate(() => /* @__PURE__ */ new Date())
+		.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 		.notNull()
 });
 
@@ -39,7 +40,7 @@ export const cooperative = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('cooperative_userId_idx').on(table.userId)]
@@ -66,7 +67,7 @@ export const driver = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('driver_userId_idx').on(table.userId)]
@@ -89,7 +90,7 @@ export const passenger = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('passenger_userId_idx').on(table.userId)]
@@ -108,7 +109,7 @@ export const vehicle = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('vehicle_cooperativeId_idx').on(table.cooperativeId)]
@@ -157,7 +158,7 @@ export const ride = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull(),
 		endAt: timestamp('end_at')
 	},
@@ -202,7 +203,7 @@ export const booking = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => new Date())
+			.$onUpdate(() => getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [
@@ -219,7 +220,7 @@ export const session = pgTable(
 		token: text('token').notNull().unique(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull(),
 		ipAddress: text('ip_address'),
 		userAgent: text('user_agent'),
@@ -248,7 +249,7 @@ export const account = pgTable(
 		password: text('password'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('account_userId_idx').on(table.userId)]
@@ -264,7 +265,7 @@ export const verification = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => /* @__PURE__ */ getCurrentUtcDate())
 			.notNull()
 	},
 	(table) => [index('verification_identifier_idx').on(table.identifier)]

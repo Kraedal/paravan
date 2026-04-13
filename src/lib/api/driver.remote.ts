@@ -12,6 +12,7 @@ import {
 	updateLocationSchema
 } from '$lib/schema/driver';
 import { and, desc, eq, gt, sql } from 'drizzle-orm';
+import { getCurrentUtcDate } from '$lib/server/utils/date-utils';
 
 async function requireDriver() {
 	const { locals } = getRequestEvent();
@@ -146,7 +147,7 @@ export const endRide = command(endRideSchema, async (data) => {
 		const driverProfile = await requireDriver();
 
 		const result = await db.transaction(async (tx) => {
-			const endTime = new Date();
+			const endTime = getCurrentUtcDate();
 
 			// Target the specific ride ID provided by the client
 			if (!data.rideId) {
@@ -299,7 +300,7 @@ export const acceptBooking = command(bookingActionSchema, async (data) => {
 
 		const updatedBooking = await tx
 			.update(booking)
-			.set({ status: 'onboard', boardedAt: new Date() })
+				.set({ status: 'onboard', boardedAt: getCurrentUtcDate() })
 			.where(
 				and(
 					eq(booking.id, data.bookingId),
@@ -343,7 +344,7 @@ export const completeBooking = command(bookingActionSchema, async (data) => {
 
 		const updatedBooking = await tx
 			.update(booking)
-			.set({ status: 'completed', alightedAt: new Date() })
+				.set({ status: 'completed', alightedAt: getCurrentUtcDate() })
 			.where(
 				and(
 					eq(booking.id, data.bookingId),
@@ -466,7 +467,7 @@ export const updateDriverLocation = command(updateLocationSchema, async (data) =
 		.set({
 			latitude: data.latitude,
 			longitude: data.longitude,
-			lastLocationUpdate: new Date()
+				lastLocationUpdate: getCurrentUtcDate()
 		})
 		.where(eq(driver.id, driverProfile.id));
 

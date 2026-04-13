@@ -30,6 +30,36 @@ const GROQ_TIMEOUT_MS = 8000;
 const AI_MAX_CANDIDATES = 6;
 const AI_MAX_CONTEXT_SNIPPETS = 2;
 const AI_CACHE_TTL_MS = 10 * 60 * 1000;
+const ANALYTICS_TIME_ZONE = env.APP_TIME_ZONE?.trim() || 'Asia/Manila';
+
+const timeZoneHourFormatter = new Intl.DateTimeFormat('en-US', {
+	timeZone: ANALYTICS_TIME_ZONE,
+	hour: 'numeric',
+	hourCycle: 'h23'
+});
+
+const timeZoneWeekdayFormatter = new Intl.DateTimeFormat('en-US', {
+	timeZone: ANALYTICS_TIME_ZONE,
+	weekday: 'long'
+});
+
+const timeZoneDatePartsFormatter = new Intl.DateTimeFormat('en-US', {
+	timeZone: ANALYTICS_TIME_ZONE,
+	year: 'numeric',
+	month: '2-digit',
+	day: '2-digit'
+});
+
+const timeZoneOffsetFormatter = new Intl.DateTimeFormat('en-US', {
+	timeZone: ANALYTICS_TIME_ZONE,
+	year: 'numeric',
+	month: '2-digit',
+	day: '2-digit',
+	hour: '2-digit',
+	minute: '2-digit',
+	second: '2-digit',
+	hourCycle: 'h23'
+});
 
 type AiSuggestionCacheEntry = {
 	expiresAt: number;
@@ -49,15 +79,56 @@ function classifyDemand(fillRatio: number): 'high' | 'normal' | 'low' {
 	return 'low';
 }
 
+function getNumberPart(parts: Intl.DateTimeFormatPart[], type: 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second'): number {
+	const value = parts.find((p) => p.type === type)?.value;
+	if (!value) return 0;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getDatePartsInAppTimeZone(date: Date): { year: number; month: number; day: number } {
+	const parts = timeZoneDatePartsFormatter.formatToParts(date);
+	return {
+		year: getNumberPart(parts, 'year'),
+		month: getNumberPart(parts, 'month'),
+		day: getNumberPart(parts, 'day')
+	};
+}
+
+function getTimeZoneOffsetMs(date: Date): number {
+	const parts = timeZoneOffsetFormatter.formatToParts(date);
+	const year = getNumberPart(parts, 'year');
+	const month = getNumberPart(parts, 'month');
+	const day = getNumberPart(parts, 'day');
+	const hour = getNumberPart(parts, 'hour');
+	const minute = getNumberPart(parts, 'minute');
+	const second = getNumberPart(parts, 'second');
+
+	const asUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+	return asUtc - date.getTime();
+}
+
+function getStartOfTodayInAppTimeZone(referenceDate: Date): Date {
+	const { year, month, day } = getDatePartsInAppTimeZone(referenceDate);
+	const utcGuess = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+	const offset = getTimeZoneOffsetMs(new Date(utcGuess));
+	return new Date(utcGuess - offset);
+}
+
+function getWeekdayInAppTimeZone(date: Date): string {
+	return timeZoneWeekdayFormatter.format(date);
+}
+
+function getHourInAppTimeZone(date: Date): number {
+	const parsed = Number(timeZoneHourFormatter.format(date));
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getHourSlot(date: Date): string {
-	const hour = date.getHours();
+	const hour = getHourInAppTimeZone(date);
 	const next = hour + 1;
 	const fmt = (h: number) => `${h % 12 || 12}${h < 12 ? 'AM' : 'PM'}`;
 	return `${fmt(hour)}–${fmt(next)}`;
-}
-
-function getDayLabel(dayIndex: number): string {
-	return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayIndex];
 }
 
 function getWeekIndex(rideDate: Date, referenceDate: Date): number {
@@ -116,7 +187,7 @@ function buildRagSnippets(
 	for (const r of rides) {
 		const date = new Date(r.createdAt);
 		const routeName = r.route?.name ?? 'Unknown Route';
-		const day = getDayLabel(date.getDay());
+		const day = getWeekdayInAppTimeZone(date);
 		const hourSlot = getHourSlot(date);
 		const capacity = r.vehicle?.capacity ?? 12;
 		const fillRatio = 1 - (r.availableSeats ?? 0) / capacity;
@@ -465,7 +536,7 @@ export const getDemandPatterns = query(async () => {
 
 	for (const r of recentRides) {
 		const date = new Date(r.createdAt);
-		const day = getDayLabel(date.getDay());
+		const day = getWeekdayInAppTimeZone(date);
 		const hourSlot = getHourSlot(date);
 		const routeName = r.route?.name ?? 'Unknown Route';
 		const key: SlotKey = `${routeName}|${day}|${hourSlot}`;
@@ -607,8 +678,7 @@ export const getAnalytics = query(async () => {
 	});
 
 	// --- Ride data for today ---
-	const startOfDay = new Date();
-	startOfDay.setHours(0, 0, 0, 0);
+	const startOfDay = getStartOfTodayInAppTimeZone(new Date());
 
 	const cooperativeRouteIds = allRoutes.map((r) => r.id);
 

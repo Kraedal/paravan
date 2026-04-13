@@ -125,15 +125,13 @@
 
 		return vehicles.current.filter((item) => !assignedVehicleIds.has(item.id));
 	});
+	import { formatUtcTimestamp } from '$lib/utils/format-timestamp';
 
 	const formatDate = (value: string | null) => {
 		if (!value) return 'No expiry set';
-
-		return new Intl.DateTimeFormat('en-PH', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		}).format(new Date(value));
+		return formatUtcTimestamp(value, {
+			dateStyle: 'short'
+		});
 	};
 </script>
 

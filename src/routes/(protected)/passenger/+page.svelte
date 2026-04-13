@@ -13,6 +13,7 @@
 		cancelBooking,
 		alightSelf
 	} from '$lib/api/passenger.remote';
+	import { subscribeToRealtimeTables } from '$lib/supabase/realtime';
 	import { MapPin, Van } from '@lucide/svelte';
 
 	type Driver = {
@@ -64,6 +65,8 @@
 	let locationError: string = $state('');
 	let locationWatcher: number | null = null;
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	let realtimeCleanup: (() => void) | null = null;
+	let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 	let showDriverSheet: boolean = $state(false);
 	let alightingBookingId: string | null = $state(null);
 	let isSettingReady = $state(false);
@@ -80,6 +83,7 @@
 	const liveStateQuery = getPassengerLiveState();
 
 	onMount(() => {
+		startRealtime();
 		void initializePage();
 	});
 
@@ -126,6 +130,7 @@
 	onDestroy(() => {
 		stopPolling();
 		stopLocationWatch();
+		stopRealtime();
 	});
 
 	let distanceToDriver = $derived.by(() => {
@@ -282,6 +287,43 @@
 			clearInterval(pollInterval);
 			pollInterval = null;
 		}
+	}
+
+	function shouldRefreshFromRealtime() {
+		return pageState === 'waiting' || pageState === 'pending' || pageState === 'onboard';
+	}
+
+	function queueRealtimeRefresh() {
+		if (!shouldRefreshFromRealtime()) return;
+		if (realtimeRefreshTimer) return;
+
+		realtimeRefreshTimer = setTimeout(async () => {
+			realtimeRefreshTimer = null;
+			await refreshLiveState();
+		}, 300);
+	}
+
+	function startRealtime() {
+		if (realtimeCleanup) return;
+
+		realtimeCleanup =
+			subscribeToRealtimeTables({
+				channelName: 'passenger-live-state',
+				tables: ['driver', 'ride', 'booking'],
+				onChange: () => {
+					void queueRealtimeRefresh();
+				}
+			}) ?? null;
+	}
+
+	function stopRealtime() {
+		if (realtimeRefreshTimer) {
+			clearTimeout(realtimeRefreshTimer);
+			realtimeRefreshTimer = null;
+		}
+
+		realtimeCleanup?.();
+		realtimeCleanup = null;
 	}
 
 	async function requestRide() {

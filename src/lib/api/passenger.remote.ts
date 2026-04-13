@@ -5,6 +5,7 @@ import { db } from '$lib/server/db';
 import { passenger, booking, ride } from '$lib/server/db/schema';
 import { generateId } from '$lib/utils/id';
 import { haversineDistance } from '$lib/utils/eta';
+import { getCurrentUtcDate } from '$lib/server/utils/date-utils';
 
 const MAX_DRIVER_RADIUS_KM = 5;
 
@@ -127,7 +128,7 @@ export const setReady = command(setReadySchema, async (data) => {
 		.set({
 			latitude: data.latitude,
 			longitude: data.longitude,
-			lastLocationUpdate: new Date(),
+			lastLocationUpdate: getCurrentUtcDate(),
 			isWaiting: true,
 			targetRouteId: data.targetRouteId ?? null
 		})
@@ -144,7 +145,7 @@ export const setNotReady = command(async () => {
 		.set({
 			latitude: null,
 			longitude: null,
-			lastLocationUpdate: new Date(),
+			lastLocationUpdate: getCurrentUtcDate(),
 			isWaiting: false,
 			targetRouteId: null
 		})

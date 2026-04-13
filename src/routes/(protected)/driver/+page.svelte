@@ -16,6 +16,7 @@
 		updateDriverLocation,
 		toggleDriverAvailability
 	} from '$lib/api/driver.remote';
+	import { subscribeToRealtimeTables } from '$lib/supabase/realtime';
 	import { haversineDistance, calcETA } from '$lib/utils/eta';
 	import { CarTaxiFront, Check, Play, UsersRound, X } from '@lucide/svelte';
 
@@ -127,6 +128,8 @@
 	// Timers
 	let locationWatcher: number | null = null;
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
+	let realtimeCleanup: (() => void) | null = null;
+	let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastLocUpdate = 0;
 	const LOC_THROTTLE = 5000;
 
@@ -185,9 +188,11 @@
 	onDestroy(() => {
 		stopPoll();
 		stopWatch();
+		stopRealtime();
 	});
 
 	async function init() {
+		startRealtime();
 		await refreshBootstrap();
 		if (ongoingRide) {
 			pageState = 'driving';
@@ -265,6 +270,39 @@
 			clearInterval(pollInterval);
 			pollInterval = null;
 		}
+	}
+
+	function queueRealtimeRefresh() {
+		if (pageState !== 'driving') return;
+		if (realtimeRefreshTimer) return;
+
+		realtimeRefreshTimer = setTimeout(async () => {
+			realtimeRefreshTimer = null;
+			await refreshLiveState();
+		}, 300);
+	}
+
+	function startRealtime() {
+		if (realtimeCleanup) return;
+
+		realtimeCleanup =
+			subscribeToRealtimeTables({
+				channelName: 'driver-live-state',
+				tables: ['driver', 'ride', 'booking'],
+				onChange: () => {
+					void queueRealtimeRefresh();
+				}
+			}) ?? null;
+	}
+
+	function stopRealtime() {
+		if (realtimeRefreshTimer) {
+			clearTimeout(realtimeRefreshTimer);
+			realtimeRefreshTimer = null;
+		}
+
+		realtimeCleanup?.();
+		realtimeCleanup = null;
 	}
 
 	// ─── Geolocation ─────────────────────────────────────────────────────────────

@@ -46,6 +46,7 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "^1.0.0-rc.1",
+		"@supabase/supabase-js": "^2.103.0",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"better-auth": "^1.5.5",
 		"chart.js": "^4.5.1",

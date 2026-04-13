@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { getTripHistory } from '$lib/api/driver.remote';
+	import { formatUtcTimestamp } from '$lib/utils/format-timestamp';
 
 	type RideHistoryItem = {
 		id: string;
@@ -36,14 +37,10 @@
 	}
 
 	function formatWhen(value: string | Date | null) {
-		if (!value) return 'Unknown date';
-		const date = value instanceof Date ? value : new Date(value);
-		if (Number.isNaN(date.getTime())) return 'Unknown date';
-
-		return new Intl.DateTimeFormat('en-PH', {
+		return formatUtcTimestamp(value, {
 			dateStyle: 'medium',
 			timeStyle: 'short'
-		}).format(date);
+		});
 	}
 
 	function servedPassengersCount(ride: RideHistoryItem) {
