@@ -174,9 +174,26 @@ type RagSlotSnippet = {
 	historicDemandLevel: 'high' | 'normal' | 'low';
 };
 
+type DemandTimestampSource = {
+	createdAt: Date;
+	bookings?: Array<{ createdAt: Date }>;
+};
+
+function getDemandTimestamp(source: DemandTimestampSource): Date {
+	if (!source.bookings?.length) return new Date(source.createdAt);
+
+	let earliest = source.bookings[0].createdAt;
+	for (const booking of source.bookings) {
+		if (booking.createdAt < earliest) earliest = booking.createdAt;
+	}
+
+	return new Date(earliest);
+}
+
 function buildRagSnippets(
 	rides: Array<{
 		createdAt: Date;
+		bookings: Array<{ createdAt: Date }>;
 		availableSeats: number | null;
 		vehicle: { capacity: number } | null;
 		route: { name: string } | null;
@@ -185,7 +202,7 @@ function buildRagSnippets(
 	const grouped = new Map<string, { routeName: string; day: string; hourSlot: string; fillRatios: number[] }>();
 
 	for (const r of rides) {
-		const date = new Date(r.createdAt);
+		const date = getDemandTimestamp(r);
 		const routeName = r.route?.name ?? 'Unknown Route';
 		const day = getWeekdayInAppTimeZone(date);
 		const hourSlot = getHourSlot(date);
@@ -508,7 +525,15 @@ export const getDemandPatterns = query(async () => {
 			eq(ride.status, 'completed'),
 			gte(ride.createdAt, twentyEightDaysAgo)
 		),
-		with: { vehicle: true, route: true }
+		with: {
+			vehicle: true,
+			route: true,
+			bookings: {
+				columns: {
+					createdAt: true
+				}
+			}
+		}
 	});
 
 	if (!recentRides.length) return { patterns: [], summary: null, aiAssisted: false };
@@ -521,7 +546,15 @@ export const getDemandPatterns = query(async () => {
 			eq(ride.status, 'completed'),
 			gte(ride.createdAt, ninetyDaysAgo)
 		),
-		with: { vehicle: true, route: true }
+		with: {
+			vehicle: true,
+			route: true,
+			bookings: {
+				columns: {
+					createdAt: true
+				}
+			}
+		}
 	});
 	const ragSnippets = buildRagSnippets(historicalRides);
 
@@ -535,7 +568,7 @@ export const getDemandPatterns = query(async () => {
 	const slotWeeks = new Map<SlotKey, { fillRatios: (number[] | undefined)[]; capacity: number; routeName: string }>();
 
 	for (const r of recentRides) {
-		const date = new Date(r.createdAt);
+		const date = getDemandTimestamp(r);
 		const day = getWeekdayInAppTimeZone(date);
 		const hourSlot = getHourSlot(date);
 		const routeName = r.route?.name ?? 'Unknown Route';
