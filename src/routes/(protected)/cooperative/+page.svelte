@@ -17,13 +17,71 @@
 	const dashboard = getCooperativeDashboard();
 	const analytics = getAnalytics();
 	const demand = getDemandPatterns();
+	const DASHBOARD_DISPLAY_TIME_ZONE = 'Asia/Manila';
+	const dashboardWeekdayFormatter = new Intl.DateTimeFormat('en-PH', {
+		weekday: 'long',
+		timeZone: DASHBOARD_DISPLAY_TIME_ZONE
+	});
+	const dashboardHourFormatter = new Intl.DateTimeFormat('en-PH', {
+		hour: 'numeric',
+		hour12: false,
+		timeZone: DASHBOARD_DISPLAY_TIME_ZONE
+	});
+
+	function parseHourSlotStart(slot: string): number | null {
+		const match = slot.match(/^(\d+)(AM|PM)/i);
+		if (!match) return null;
+		let hour = Number.parseInt(match[1], 10);
+		const period = match[2].toUpperCase();
+		if (period === 'PM' && hour !== 12) hour += 12;
+		if (period === 'AM' && hour === 12) hour = 0;
+		return hour;
+	}
+
+	function formatHourSlot(hour24: number): string {
+		const next = (hour24 + 1) % 24;
+		const formatHour = (hour: number) => {
+			const normalized = hour % 12 || 12;
+			const suffix = hour < 12 ? 'AM' : 'PM';
+			return `${normalized}${suffix}`;
+		};
+		return `${formatHour(hour24)}–${formatHour(next)}`;
+	}
+
+	function convertUtcDemandSlot(day: string, hourSlot: string): { day: string; hourSlot: string } {
+		const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+		const dayIndex = dayOrder.indexOf(day);
+		const startHour = parseHourSlotStart(hourSlot);
+		if (dayIndex === -1 || startHour === null) return { day, hourSlot };
+
+		const utcDate = new Date(Date.UTC(2024, 0, 1 + dayIndex, startHour, 0, 0, 0));
+		const convertedDay = dashboardWeekdayFormatter.format(utcDate);
+		const convertedHour = Number.parseInt(dashboardHourFormatter.format(utcDate), 10);
+		if (!Number.isFinite(convertedHour)) return { day, hourSlot };
+
+		return {
+			day: convertedDay,
+			hourSlot: formatHourSlot(convertedHour)
+		};
+	}
+
+	let localizedDemandPatterns = $derived.by(() => {
+		if (!demand.ready || !demand.current?.patterns) return [];
+		return (demand.current.patterns as DemandSlot[]).map((pattern) => {
+			const converted = convertUtcDemandSlot(pattern.day, pattern.hourSlot);
+			return {
+				...pattern,
+				day: converted.day,
+				hourSlot: converted.hourSlot
+			};
+		});
+	});
 
 	// ─── Derived chart data ───────────────────────────────────────────────────────
 
 	// Data for heatmap
 	let heatmapData = $derived.by(() => {
-		if (!demand.ready || !demand.current?.patterns) return [];
-		return (demand.current.patterns as DemandSlot[]).map(p => ({
+		return localizedDemandPatterns.map((p) => ({
 			hourSlot: p.hourSlot,
 			day: p.day,
 			historicDemandLevel: p.historicDemandLevel,
@@ -33,8 +91,7 @@
 
 	// Top suggestions
 	let topSuggestions = $derived.by(() => {
-		if (!demand.ready || !demand.current?.patterns) return [];
-		return (demand.current.patterns as DemandSlot[])
+		return localizedDemandPatterns
 			.filter(p => p.suggestion && p.forecastConfidence !== null)
 			.sort((a, b) => {
 				const order = { high: 0, medium: 1, low: 2 };
@@ -150,7 +207,7 @@
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 			<div class="lg:col-span-2">
 				<DemandForecast 
-					patterns={demand.current.patterns as DemandSlot[]}
+					patterns={localizedDemandPatterns as DemandSlot[]}
 					summary={demand.current.summary}
 					// aiAssisted={demand.current.aiAssisted ?? false}
 				/>
