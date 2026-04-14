@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import {
 		createDriver,
 		updateDriver,
@@ -17,8 +18,11 @@
 	let editFormEl = $state<HTMLFormElement | null>(null);
 	let isAssignOpen = $state(false);
 	let isEditOpen = $state(false);
+	let didCreateSubmit = $state(false);
 	let didEditSubmit = $state(false);
+	let lastHandledCreateResult = $state<CreateDriverResult | null>(null);
 	let lastHandledUpdateResult = $state<AssignResult | null>(null);
+	let showCreateSuccessToast = $state(false);
 	let assigningDriverId = $state('');
 	let editingDriver = $state<{
 		id: string;
@@ -27,16 +31,40 @@
 		licenseExpiry: string | null;
 	} | null>(null);
 
+	const DRIVER_CREATED_TOAST_KEY = 'driver_created_success';
+	const TOAST_DURATION_MS = 3000;
+
+	onMount(() => {
+		if (sessionStorage.getItem(DRIVER_CREATED_TOAST_KEY) !== '1') return;
+
+		sessionStorage.removeItem(DRIVER_CREATED_TOAST_KEY);
+		showCreateSuccessToast = true;
+
+		const timeoutId = window.setTimeout(() => {
+			showCreateSuccessToast = false;
+		}, TOAST_DURATION_MS);
+
+		return () => {
+			window.clearTimeout(timeoutId);
+		};
+	});
+
 	type CreateDriverResult = { success?: boolean };
 	type AssignResult = { success?: boolean };
 
 	$effect(() => {
+		if (!didCreateSubmit) return;
+
 		const result = createDriver.result as CreateDriverResult | null;
 		if (!result) return;
+		if (result === lastHandledCreateResult) return;
+
+		lastHandledCreateResult = result;
+		didCreateSubmit = false;
+
 		if (result.success) {
-			isOpen = false;
-			formEl?.reset();
-			void drivers.refresh();
+			sessionStorage.setItem(DRIVER_CREATED_TOAST_KEY, '1');
+			window.location.reload();
 		}
 	});
 
@@ -125,15 +153,23 @@
 
 		return vehicles.current.filter((item) => !assignedVehicleIds.has(item.id));
 	});
-	import { formatUtcTimestamp } from '$lib/utils/format-timestamp';
+	import { formatUtcDate } from '$lib/utils/format-timestamp';
 
 	const formatDate = (value: string | null) => {
 		if (!value) return 'No expiry set';
-		return formatUtcTimestamp(value, {
-			dateStyle: 'short'
-		});
+		return formatUtcDate(value);
 	};
 </script>
+
+{#if showCreateSuccessToast}
+	<div
+		role="status"
+		aria-live="polite"
+		class="fixed bottom-4 right-4 z-60 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-green-800 shadow-lg"
+	>
+		Driver created successfully.
+	</div>
+{/if}
 
 <!-- Page header -->
 <div class="mb-6 flex items-center justify-between">
@@ -526,7 +562,14 @@
 			</button>
 		</div>
 
-		<form bind:this={formEl} {...createDriver} class="flex flex-col gap-4">
+		<form
+			bind:this={formEl}
+			{...createDriver}
+			onsubmit={() => {
+				didCreateSubmit = true;
+			}}
+			class="flex flex-col gap-4"
+		>
 			<div class="grid grid-cols-2 gap-4">
 				<!-- Full Name -->
 				<div class="col-span-2 flex flex-col gap-1.5">

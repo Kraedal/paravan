@@ -82,7 +82,7 @@
 				<a
 					href={resolve('/auth/login')}
 					class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
-					>Login</a
+					>Sign In</a
 				>
 			</button>
 			</div>
@@ -99,7 +99,7 @@
 					onclick={() => goto(resolve('/auth/signup'))}
 					class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 				>
-					Get Started 
+					Sign Up 
 				</button>
 
 				{#if !isInstalled && (canInstall || isIOS)}

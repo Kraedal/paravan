@@ -21,7 +21,7 @@
 	{@render children()}
 
 	<header
-		class="fixed top-0 right-0 left-0 z-60 flex items-center justify-between border-b border-gray-200 bg-white/10 px-5 py-4 backdrop-blur-xs"
+		class="fixed top-0 right-0 left-0 z-60 flex items-center justify-between border-b border-gray-200 bg-white px-5 py-4 backdrop-blur-xs"
 	>
 		<div class="flex items-center gap-2 text-black drop-shadow-sm">
 	

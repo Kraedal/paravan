@@ -19,13 +19,15 @@ export function formatUtcTimestamp(
 	const date = value instanceof Date ? value : new Date(value);
 	if (Number.isNaN(date.getTime())) return 'Unknown date';
 
-	const { dateStyle = 'medium', timeStyle = 'short', displayTimezone } = options;
+	const { dateStyle = 'medium', timeStyle, displayTimezone } = options;
 
-	const formatter = new Intl.DateTimeFormat('en-PH', {
-		dateStyle,
-		timeStyle,
-		...(displayTimezone && { timeZone: displayTimezone })
-	});
+	const formatterOptions: Intl.DateTimeFormatOptions = {
+		...(dateStyle ? { dateStyle } : {}),
+		...(timeStyle ? { timeStyle } : {}),
+		...(displayTimezone ? { timeZone: displayTimezone } : {})
+	};
+
+	const formatter = new Intl.DateTimeFormat('en-PH', formatterOptions);
 
 	return formatter.format(date);
 }
