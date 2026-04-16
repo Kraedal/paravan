@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import logo from '$lib/assets/paralogo.png';
-	import herovan from '$lib/assets/herovan.png';
 
 
 	type BeforeInstallPromptEvent = Event & {
@@ -71,41 +70,32 @@
 </script>
 
 <div class="flex min-h-screen flex-col bg-white text-gray-900">
-	<header class="border-b border-gray-100">
-		<div class="mx-auto flex flex-row justify-between max-w-7xl items-center gap-3 px-6 py-4">
-		<div class="flex items-center gap-2">
-			<img src={logo} alt="Para logo" class="h-8 w-8" />
-			<span class="text-lg font-semibold text-blue-900 uppercase">Para</span>
-			</div>
-			<div>
-			<button>
-				<a
-					href={resolve('/auth/login')}
-					class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
-					>Sign In</a
-				>
-			</button>
-			</div>
-		</div>
-	</header>
+	
 
-	<main style="background-image: url({herovan}); background-size: cover; background-position: center;" class="flex flex-1 items-center justify-center px-6">
-		<section class=" max-w-7xl h-[calc(100vh-8rem)] flex flex-col items-start justify-center text-left gap-6 px-6 " >
+	<main class="flex flex-1 items-center justify-center">
+		<section class=" max-w-7xl h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-6" >
+			<img src="{logo}" alt="" class="w-64 h-64 object-contain" />
 			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">PARA</p></h1>
-			<p class="max-w-xl text-lg text-gray-600">No more guessing. No more waiting. <br />Smarter, coordinated van transport across Cagayan.</p>
-			<div class="flex flex-row gap-4 ">
+			<p class="max-w-xl text-md md:text-lg text-gray-600">No more guessing. No more waiting. <br />Smarter, coordinated van transport across Cagayan.</p>
+			<div class="flex w-full max-w-xs flex-col items-center justify-center gap-4">
 	
 				<button
 					onclick={() => goto(resolve('/auth/signup'))}
-					class="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+					class="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 				>
 					Sign Up 
+				</button>
+				<button
+					onclick={() => goto(resolve('/auth/login'))}
+					class="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+				>
+					Sign In
 				</button>
 
 				{#if !isInstalled && (canInstall || isIOS)}
 					<button
 						onclick={installApp}
-						class="inline-flex items-center gap-2 rounded-lg border border-blue-900 bg-white px-4 py-2 text-sm font-semibold text-blue-900 shadow-sm transition-all hover:bg-blue-50 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
+						class="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-900 bg-white px-4 py-2 text-sm font-semibold text-blue-900 shadow-sm transition-all hover:bg-blue-50 focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 focus:outline-none active:scale-[0.98]"
 					>
 						Install App
 					</button>

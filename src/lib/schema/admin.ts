@@ -47,6 +47,10 @@ export const deleteVehicleSchema = z.object({
 	vehicleId: z.string()
 });
 
+export const deleteRideSchema = z.object({
+	rideId: z.string()
+});
+
 // Create, update, delete routes schemas
 
 export const createRouteSchema = z.object({

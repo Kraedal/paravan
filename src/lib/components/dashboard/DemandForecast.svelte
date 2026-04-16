@@ -27,7 +27,26 @@
 	let { patterns = [], summary }: Props = $props();
 	// let showAiInfo = $state(false);
 
-	const displayPatterns = $derived(patterns.slice(0, 8));
+	const PAGE_SIZE = 8;
+	let currentPage = $state(1);
+	const totalPages = $derived(Math.max(1, Math.ceil(patterns.length / PAGE_SIZE)));
+
+	$effect(() => {
+		if (currentPage > totalPages) currentPage = totalPages;
+		if (currentPage < 1) currentPage = 1;
+	});
+
+	const pageStart = $derived((currentPage - 1) * PAGE_SIZE);
+	const pageEnd = $derived(pageStart + PAGE_SIZE);
+	const displayPatterns = $derived(patterns.slice(pageStart, pageEnd));
+
+	function goToPreviousPage() {
+		if (currentPage > 1) currentPage -= 1;
+	}
+
+	function goToNextPage() {
+		if (currentPage < totalPages) currentPage += 1;
+	}
 </script>
 
 <div class="bg-white rounded-xl border border-slate-100 p-4 lg:p-5">
@@ -106,10 +125,31 @@
 				</tbody>
 			</table>
 		</div>
-		{#if patterns.length > 8}
-			<p class="text-xs text-slate-300 mt-3 text-center">
-				Showing 8 of {patterns.length} patterns
-			</p>
+		{#if patterns.length > PAGE_SIZE}
+			<div class="mt-3 flex items-center justify-between gap-2">
+				<p class="text-xs text-slate-300">
+					Showing {pageStart + 1}-{Math.min(pageEnd, patterns.length)} of {patterns.length} patterns
+				</p>
+				<div class="flex items-center gap-1.5">
+					<button
+						type="button"
+						onclick={goToPreviousPage}
+						disabled={currentPage === 1}
+						class="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						Prev
+					</button>
+					<span class="text-xs text-slate-400">Page {currentPage} / {totalPages}</span>
+					<button
+						type="button"
+						onclick={goToNextPage}
+						disabled={currentPage === totalPages}
+						class="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						Next
+					</button>
+				</div>
+			</div>
 		{/if}
 	{:else}
 		<p class="text-sm text-slate-400 py-6 text-center">Not enough ride data to generate forecasts yet.</p>

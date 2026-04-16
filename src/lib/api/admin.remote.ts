@@ -1,12 +1,13 @@
 import { db } from '$lib/server/db';
-import { cooperative, driver, user, vehicle, route } from '$lib/server/db/schema';
-import { and, eq, ne } from 'drizzle-orm';
+import { cooperative, driver, user, vehicle, route, ride } from '$lib/server/db/schema';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import {
 	createDriverSchema,
 	updateDriverSchema,
 	createVehicleSchema,
 	updateVehicleSchema,
 	deleteVehicleSchema,
+	deleteRideSchema,
 	assignDriverSchema,
 	unassignDriverVehicleSchema,
 	createRouteSchema,
@@ -416,6 +417,59 @@ export const getVehicles = query(async () => {
 	return vehicles;
 });
 
+export const getTripHistory = query(async () => {
+	const admin = requireAdmin();
+
+	const cooperativeData = await db.query.cooperative.findFirst({
+		where: eq(cooperative.userId, admin.id)
+	});
+
+	if (!cooperativeData) throw new Error('Cooperative not found');
+
+	const cooperativeRoutes = await db.query.route.findMany({
+		where: eq(route.cooperativeId, cooperativeData.id),
+		columns: {
+			id: true
+		}
+	});
+
+	if (!cooperativeRoutes.length) return [];
+
+	const routeIds = cooperativeRoutes.map((r) => r.id);
+
+	const trips = await db.query.ride.findMany({
+		where: inArray(ride.routeId, routeIds),
+		orderBy: [desc(ride.createdAt)],
+		with: {
+			driver: {
+				columns: {
+					id: true,
+					name: true,
+					cooperativeId: true
+				},
+				with: {
+					user: {
+						columns: {
+							email: true
+						}
+					}
+				}
+			},
+			vehicle: true,
+			route: {
+				columns: {
+					id: true,
+					name: true,
+					cooperativeId: true,
+					direction: true
+				}
+			}
+		}
+	});
+
+	return trips.filter((trip) => trip.driver?.cooperativeId === cooperativeData.id);
+});
+
 export const getCooperativeDashboard = query(async () => {
 	const admin = requireAdmin();
 
@@ -432,6 +486,34 @@ export const getCooperativeDashboard = query(async () => {
 			})
 		: [];
 
+	const ongoingRides = cooperativeData && driverLocations.length > 0
+		? await db.query.ride.findMany({
+				where: and(
+					eq(ride.status, 'ongoing'),
+					inArray(
+						ride.driverId,
+						driverLocations.map((d) => d.id)
+					)
+				),
+				with: {
+					route: {
+						columns: {
+							id: true,
+							name: true,
+							originLatitude: true,
+							originLongitude: true,
+							destinationLatitude: true,
+							destinationLongitude: true
+						}
+					}
+				}
+			})
+		: [];
+
+	const ongoingRideByDriverId = new Map(
+		ongoingRides.map((trip) => [trip.driverId, trip])
+	);
+
 	return {
 		user: admin,
 		cooperative: cooperativeData,
@@ -447,6 +529,23 @@ export const getCooperativeDashboard = query(async () => {
 					id: d.vehicle.id,
 					plateNumber: d.vehicle.plateNumber,
 					model: d.vehicle.model
+				}
+				: null,
+			ongoingRide: ongoingRideByDriverId.get(d.id)?.route
+				? {
+					id: ongoingRideByDriverId.get(d.id)!.id,
+					route: {
+						id: ongoingRideByDriverId.get(d.id)!.route!.id,
+						name: ongoingRideByDriverId.get(d.id)!.route!.name,
+						origin: [
+							ongoingRideByDriverId.get(d.id)!.route!.originLatitude,
+							ongoingRideByDriverId.get(d.id)!.route!.originLongitude
+						] as [number, number],
+						destination: [
+							ongoingRideByDriverId.get(d.id)!.route!.destinationLatitude,
+							ongoingRideByDriverId.get(d.id)!.route!.destinationLongitude
+						] as [number, number]
+					}
 				}
 				: null
 		}))
@@ -481,6 +580,55 @@ export const deleteVehicle = form(deleteVehicleSchema, async (data) => {
 			console.error('[deleteVehicle]', error);
 		}
 		return { success: false, error: 'An error occurred while deleting the vehicle' };
+	}
+});
+
+export const deleteTrip = form(deleteRideSchema, async (data) => {
+	try {
+		const admin = requireAdmin();
+		const cooperativeData = await db.query.cooperative.findFirst({
+			where: eq(cooperative.userId, admin.id)
+		});
+
+		if (!cooperativeData) {
+			throw new Error('Cooperative not found');
+		}
+
+		const targetTrip = await db.query.ride.findFirst({
+			where: eq(ride.id, data.rideId),
+			with: {
+				driver: {
+					columns: {
+						cooperativeId: true
+					}
+				},
+				route: {
+					columns: {
+						cooperativeId: true
+					}
+				}
+			}
+		});
+
+		if (!targetTrip) {
+			throw new Error('Trip not found');
+		}
+
+		if (
+			targetTrip.driver?.cooperativeId !== cooperativeData.id ||
+			targetTrip.route?.cooperativeId !== cooperativeData.id
+		) {
+			throw new Error('Trip not found in your cooperative');
+		}
+
+		await db.delete(ride).where(eq(ride.id, data.rideId));
+
+		return { success: true };
+	} catch (error) {
+		if (error instanceof Error) {
+			console.error('[deleteTrip]', error);
+		}
+		return { success: false, error: 'An error occurred while deleting the trip' };
 	}
 });
 

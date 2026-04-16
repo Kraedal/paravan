@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import 'leaflet/dist/leaflet.css';
+	import 'leaflet.fullscreen/dist/Control.FullScreen.css';
 	import type * as Leaflet from 'leaflet';
 	import { SvelteMap } from 'svelte/reactivity';
 	import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png';
@@ -30,6 +31,7 @@
 		followLiveMarker = false,
 		overlayMarkers = [] as OverlayMarker[],
 		onOverlayMarkerClick = () => {},
+		showFullscreenControl = false,
 		fullBleed = false,
 		mapAriaLabel = 'Map'
 	}: {
@@ -46,6 +48,7 @@
 		followLiveMarker?: boolean;
 		overlayMarkers?: OverlayMarker[];
 		onOverlayMarkerClick?: (id: string) => void;
+		showFullscreenControl?: boolean;
 		fullBleed?: boolean;
 		mapAriaLabel?: string;
 	} = $props();
@@ -97,6 +100,18 @@
 				shadowUrl: markerShadowUrl
 			});
 			map = L.map(mapElement, { zoomControl: false }).setView(center, zoom);
+
+			if (showFullscreenControl) {
+				try {
+					const fullscreenPlugin = await import('leaflet.fullscreen');
+					new fullscreenPlugin.FullScreen({
+						position: 'topleft',
+						forcePseudoFullscreen: true
+					}).addTo(map);
+				} catch (error) {
+					console.warn('[MapView] Failed to initialize Leaflet fullscreen control', error);
+				}
+			}
 
 			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 				maxZoom: 19,

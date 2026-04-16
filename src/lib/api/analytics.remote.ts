@@ -30,6 +30,9 @@ const GROQ_TIMEOUT_MS = 8000;
 const AI_MAX_CANDIDATES = 6;
 const AI_MAX_CONTEXT_SNIPPETS = 2;
 const AI_CACHE_TTL_MS = 10 * 60 * 1000;
+const DEMAND_HEATMAP_WINDOW_DAYS = 7;
+const DEMAND_FORECAST_WINDOW_DAYS = 28;
+const DEMAND_RAG_WINDOW_DAYS = 90;
 const ANALYTICS_TIME_ZONE = env.APP_TIME_ZONE?.trim() || 'Asia/Manila';
 
 const timeZoneHourFormatter = new Intl.DateTimeFormat('en-US', {
@@ -513,59 +516,77 @@ export const getDemandPatterns = query(async () => {
 	if (!coopRoutes.length) return { patterns: [], summary: null, aiAssisted: false };
 
 	const cooperativeRouteIds = coopRoutes.map((r) => r.id);
-
-	// Pull last 28 days (4 full weeks) of completed rides
-	const twentyEightDaysAgo = new Date();
-	twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
 	const now = new Date();
+	const sevenDaysAgo = new Date(now);
+	sevenDaysAgo.setDate(sevenDaysAgo.getDate() - DEMAND_HEATMAP_WINDOW_DAYS);
+	const twentyEightDaysAgo = new Date(now);
+	twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - DEMAND_FORECAST_WINDOW_DAYS);
+	const ninetyDaysAgo = new Date(now);
+	ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - DEMAND_RAG_WINDOW_DAYS);
 
-	const recentRides = await db.query.ride.findMany({
-		where: and(
-			inArray(ride.routeId, cooperativeRouteIds),
-			eq(ride.status, 'completed'),
-			gte(ride.createdAt, twentyEightDaysAgo)
-		),
-		with: {
-			vehicle: true,
-			route: true,
-			bookings: {
-				columns: {
-					createdAt: true
+	const [weekRides, recentRides, historicalRides] = await Promise.all([
+		db.query.ride.findMany({
+			where: and(
+				inArray(ride.routeId, cooperativeRouteIds),
+				eq(ride.status, 'completed'),
+				gte(ride.createdAt, sevenDaysAgo)
+			),
+			with: {
+				vehicle: true,
+				route: true,
+				bookings: {
+					columns: {
+						createdAt: true
+					}
 				}
 			}
-		}
-	});
+		}),
+		db.query.ride.findMany({
+			where: and(
+				inArray(ride.routeId, cooperativeRouteIds),
+				eq(ride.status, 'completed'),
+				gte(ride.createdAt, twentyEightDaysAgo)
+			),
+			with: {
+				vehicle: true,
+				route: true,
+				bookings: {
+					columns: {
+						createdAt: true
+					}
+				}
+			}
+		}),
+		db.query.ride.findMany({
+			where: and(
+				inArray(ride.routeId, cooperativeRouteIds),
+				eq(ride.status, 'completed'),
+				gte(ride.createdAt, ninetyDaysAgo)
+			),
+			with: {
+				vehicle: true,
+				route: true,
+				bookings: {
+					columns: {
+						createdAt: true
+					}
+				}
+			}
+		})
+	]);
 
 	if (!recentRides.length) return { patterns: [], summary: null, aiAssisted: false };
-
-	const ninetyDaysAgo = new Date();
-	ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-	const historicalRides = await db.query.ride.findMany({
-		where: and(
-			inArray(ride.routeId, cooperativeRouteIds),
-			eq(ride.status, 'completed'),
-			gte(ride.createdAt, ninetyDaysAgo)
-		),
-		with: {
-			vehicle: true,
-			route: true,
-			bookings: {
-				columns: {
-					createdAt: true
-				}
-			}
-		}
-	});
 	const ragSnippets = buildRagSnippets(historicalRides);
 
 	// ---------------------------------------------------------------------------
 	// Step 1 — DESCRIPTIVE: Group rides into route+day+hour slots per week
 	// ---------------------------------------------------------------------------
 
-	// slotWeeks[slotKey][weekIndex] = array of fill ratios for that week
+	// slotWeeks[slotKey][weekIndex] = array of fill ratios for that week (28-day window)
 	// weekIndex: 0 = oldest, 3 = most recent
 	type SlotKey = string;
 	const slotWeeks = new Map<SlotKey, { fillRatios: (number[] | undefined)[]; capacity: number; routeName: string }>();
+	const recentSlotFillRatios = new Map<SlotKey, number[]>();
 
 	for (const r of recentRides) {
 		const date = getDemandTimestamp(r);
@@ -576,6 +597,8 @@ export const getDemandPatterns = query(async () => {
 
 		const capacity = r.vehicle?.capacity ?? 12;
 		const fillRatio = 1 - (r.availableSeats ?? 0) / capacity;
+		if (!recentSlotFillRatios.has(key)) recentSlotFillRatios.set(key, []);
+		recentSlotFillRatios.get(key)!.push(fillRatio);
 
 		// rawWeekIndex: 0 = most recent, flip to store oldest at index 0
 		const rawWeekIndex = getWeekIndex(date, now);
@@ -591,6 +614,26 @@ export const getDemandPatterns = query(async () => {
 		slot.fillRatios[storeIndex]!.push(fillRatio);
 	}
 
+	// weekSlotFillRatios[slotKey] = fill ratios in the last 7 days for heatmap/descriptive analytics
+	const weekSlotFillRatios = new Map<SlotKey, number[]>();
+	for (const r of weekRides) {
+		const date = getDemandTimestamp(r);
+		const day = getWeekdayInAppTimeZone(date);
+		const hourSlot = getHourSlot(date);
+		const routeName = r.route?.name ?? 'Unknown Route';
+		const key: SlotKey = `${routeName}|${day}|${hourSlot}`;
+
+		const capacity = r.vehicle?.capacity ?? 12;
+		const fillRatio = 1 - (r.availableSeats ?? 0) / capacity;
+
+		if (!weekSlotFillRatios.has(key)) weekSlotFillRatios.set(key, []);
+		weekSlotFillRatios.get(key)!.push(fillRatio);
+	}
+
+	const descriptiveSlotFillRatios = weekSlotFillRatios.size > 0
+		? weekSlotFillRatios
+		: recentSlotFillRatios;
+
 	// ---------------------------------------------------------------------------
 	// Step 2 — PREDICTIVE: Apply WMA across weekly averages per slot
 	// ---------------------------------------------------------------------------
@@ -598,7 +641,10 @@ export const getDemandPatterns = query(async () => {
 	const patterns: DemandSlot[] = [];
 	const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-	for (const [key, { fillRatios, routeName }] of slotWeeks.entries()) {
+	for (const [key, descriptiveFillRatios] of descriptiveSlotFillRatios.entries()) {
+		const forecastSlot = slotWeeks.get(key);
+		const fillRatios = forecastSlot?.fillRatios ?? [undefined, undefined, undefined, undefined];
+		const routeName = forecastSlot?.routeName ?? key.split('|')[0] ?? 'Unknown Route';
 		const [, day, hourSlot] = key.split('|');
 
 		// Average fill ratio per week (null if no data that week)
@@ -609,9 +655,8 @@ export const getDemandPatterns = query(async () => {
 
 		// Overall descriptive average across all rides in this slot
 		// Keep 0 fill ratios (empty rides) so totalRides and averages stay accurate.
-		const allFillRatios = fillRatios.flat().filter((ratio): ratio is number => ratio !== undefined);
-		const totalRides = allFillRatios.length;
-		const avgFillRatio = allFillRatios.reduce((a, b) => a + b, 0) / totalRides;
+		const totalRides = descriptiveFillRatios.length;
+		const avgFillRatio = descriptiveFillRatios.reduce((a, b) => a + b, 0) / totalRides;
 		const historicDemandLevel = classifyDemand(avgFillRatio);
 
 		// WMA forecast
@@ -669,7 +714,7 @@ export const getDemandPatterns = query(async () => {
 		forecastedHighSlots: patterns.filter((p) => p.forecastedDemandLevel === 'high').length,
 		forecastedLowSlots: patterns.filter((p) => p.forecastedDemandLevel === 'low').length,
 		totalPatternsAnalyzed: patterns.length,
-		ridesAnalyzed: recentRides.length
+		ridesAnalyzed: descriptiveSlotFillRatios === weekSlotFillRatios ? weekRides.length : recentRides.length
 	};
 
 	return { patterns, summary, aiAssisted };

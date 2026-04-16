@@ -51,6 +51,7 @@
 		"better-auth": "^1.5.5",
 		"chart.js": "^4.5.1",
 		"leaflet": "^1.9.4",
+		"leaflet.fullscreen": "^5.3.1",
 		"zod": "^4.3.6"
 	}
 }
