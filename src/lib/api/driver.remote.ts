@@ -128,6 +128,12 @@ export const startRide = command(startRideSchema, async (data) => {
 		throw error(403, 'Route does not belong to your cooperative');
 	}
 
+	if (data.initialManualPassengers > vehicleData.capacity) {
+		throw error(400, 'Initial manual passengers exceed vehicle capacity');
+	}
+
+	const availableSeatsAtStart = vehicleData.capacity - data.initialManualPassengers;
+
 	const newRide = await db
 		.insert(ride)
 		.values({
@@ -136,7 +142,7 @@ export const startRide = command(startRideSchema, async (data) => {
 			vehicleId: data.vehicleId,
 			routeId: data.routeId,
 			status: 'ongoing',
-			availableSeats: vehicleData.capacity
+			availableSeats: availableSeatsAtStart
 		})
 		.returning();
 	return { success: true, ride: newRide[0] };

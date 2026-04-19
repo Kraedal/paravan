@@ -3,7 +3,12 @@ import z from 'zod';
 // ─── Start ride ───────────────────────────────────────────────────────────────
 export const startRideSchema = z.object({
 	vehicleId: z.string().min(1, 'Vehicle is required'),
-	routeId: z.string().min(1, 'Route is required')
+	routeId: z.string().min(1, 'Route is required'),
+	initialManualPassengers: z.coerce
+		.number()
+		.int('Manual passengers must be a whole number')
+		.min(0, 'Manual passengers cannot be negative')
+		.default(0)
 });
 
 // ─── End ride ─────────────────────────────────────────────────────────────────

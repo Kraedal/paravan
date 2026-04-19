@@ -8,6 +8,8 @@
 		createdAt: string | Date;
 		endAt: string | Date | null;
 		availableSeats: number;
+		manualCompletedPassengers: number;
+		bookings: Array<{ status: 'pending' | 'onboard' | 'completed' | 'cancelled' }>;
 		driver: {
 			id: string;
 			name: string;
@@ -55,6 +57,11 @@
 		return formatUtcTimestamp(value, { dateStyle: 'medium', timeStyle: 'short' });
 	};
 
+	const getPassengersServed = (trip: TripRecord) => {
+		const appCompletedPassengers = trip.bookings.filter((b) => b.status === 'completed').length;
+		return appCompletedPassengers + (trip.manualCompletedPassengers ?? 0);
+	};
+
 	function goToPreviousPage() {
 		if (currentPage > 1) currentPage -= 1;
 	}
@@ -79,7 +86,7 @@
 				<th class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Started</th>
 				<th class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase">Ended</th>
 				<th class="px-6 py-3 text-center text-xs font-medium tracking-wider text-gray-500 uppercase">Status</th>
-				<th class="px-6 py-3 text-center text-xs font-medium tracking-wider text-gray-500 uppercase">Seats</th>
+				<th class="px-6 py-3 text-center text-xs font-medium tracking-wider text-gray-500 uppercase">Passengers</th>
 				<th class="px-6 py-3 text-right text-xs font-medium tracking-wider text-gray-500 uppercase">Actions</th>
 			</tr>
 		</thead>
@@ -132,7 +139,7 @@
 							</span>
 						</td>
 						<td class="px-6 py-4 text-center text-sm font-medium text-gray-900">
-							{trip.vehicle ? `${trip.availableSeats}/${trip.vehicle.capacity}` : trip.availableSeats}
+							{getPassengersServed(trip)}
 						</td>
 						<td class="px-6 py-4 text-right text-sm">
 							<form

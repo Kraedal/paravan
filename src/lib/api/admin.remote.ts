@@ -440,6 +440,14 @@ export const getTripHistory = query(async () => {
 	const trips = await db.query.ride.findMany({
 		where: inArray(ride.routeId, routeIds),
 		orderBy: [desc(ride.createdAt)],
+		columns: {
+			id: true,
+			status: true,
+			createdAt: true,
+			endAt: true,
+			availableSeats: true,
+			manualCompletedPassengers: true
+		},
 		with: {
 			driver: {
 				columns: {
@@ -462,6 +470,11 @@ export const getTripHistory = query(async () => {
 					name: true,
 					cooperativeId: true,
 					direction: true
+				}
+			},
+			bookings: {
+				columns: {
+					status: true
 				}
 			}
 		}

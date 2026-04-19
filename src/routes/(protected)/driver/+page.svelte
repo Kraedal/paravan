@@ -103,6 +103,21 @@
 
 	// Start ride form fields
 	let selectedRouteId: string = $state('');
+	let initialManualPassengers: number = $state(0);
+
+	function getVehicleCapacity(): number {
+		return profile?.vehicle?.capacity ?? 0;
+	}
+
+	function clampInitialManualPassengers(value: number): number {
+		if (!Number.isFinite(value)) return 0;
+		const capacity = getVehicleCapacity();
+		return Math.min(capacity, Math.max(0, Math.trunc(value)));
+	}
+
+	function handleInitialManualPassengersInput(value: number) {
+		initialManualPassengers = clampInitialManualPassengers(value);
+	}
 
 	let acceptingBookingId: string | null = $state(null);
 	let completingBookingId: string | null = $state(null);
@@ -113,6 +128,9 @@
 	let isUpdatingLocation = $state(false);
 	let isAddingManualPassenger = $state(false);
 	let isRemovingManualPassenger = $state(false);
+	let showDropoffModal = $state(false);
+	let dropoffBookingId: string | null = $state(null);
+	let dropoffPassengerName = $state('');
 
 	// Live location
 	let driverLocation: [number, number] | null = $state(null);
@@ -396,6 +414,7 @@
 			await routesQuery.refresh();
 			routes = (routesQuery.current as Route[] | undefined) ?? [];
 			if (routes.length > 0) selectedRouteId = routes[0].id;
+			initialManualPassengers = 0;
 			showStartSheet = true;
 		} catch {
 			errorMsg = 'Failed to load routes.';
@@ -404,13 +423,27 @@
 
 	async function handleStartRide() {
 		if (!selectedRouteId || !profile?.vehicleId || isStartingRide) return;
+		const vehicleCapacity = getVehicleCapacity();
+		const normalizedManualPassengers = clampInitialManualPassengers(initialManualPassengers);
+
+		if (normalizedManualPassengers < 0) {
+			errorMsg = 'Manual passengers cannot be negative.';
+			return;
+		}
+
+		if (normalizedManualPassengers > vehicleCapacity) {
+			errorMsg = `Manual passengers cannot exceed ${vehicleCapacity}.`;
+			return;
+		}
+
 		isStartingRide = true;
 		errorMsg = '';
 
 		try {
 			const result = (await startRide({
 				vehicleId: profile.vehicleId,
-				routeId: selectedRouteId
+				routeId: selectedRouteId,
+				initialManualPassengers: normalizedManualPassengers
 			})) as { success?: boolean; error?: string };
 
 			if (!result?.success) {
@@ -422,6 +455,7 @@
 			await refreshBootstrap();
 			pageState = 'driving';
 			showStartSheet = false;
+			initialManualPassengers = 0;
 			startPoll();
 			startWatch();
 		} catch (error) {
@@ -438,11 +472,11 @@
 		}
 
 		errorMsg = '';
-		if (onboardBookings.length === 0) {
-			showEndRideModal = false;
-			void submitEndRide();
-			return;
-		}
+		// if (onboardBookings.length === 0) {
+		// 	showEndRideModal = false;
+		// 	void submitEndRide();
+		// 	return;
+		// }
 		showEndRideModal = true;
 	}
 
@@ -536,6 +570,30 @@
 		} finally {
 			completingBookingId = null;
 		}
+	}
+
+	function openDropoffModal(booking: Booking) {
+		if (completingBookingId) return;
+		dropoffBookingId = booking.id;
+		dropoffPassengerName = booking.passenger.user.name;
+		showDropoffModal = true;
+	}
+
+	function closeDropoffModal() {
+		showDropoffModal = false;
+		dropoffBookingId = null;
+		dropoffPassengerName = '';
+	}
+
+	async function submitDropoff() {
+		const bookingId = dropoffBookingId;
+		if (!bookingId) {
+			closeDropoffModal();
+			return;
+		}
+
+		closeDropoffModal();
+		await handleComplete(bookingId);
 	}
 
 	async function handleReject(bookingId: string) {
@@ -855,7 +913,7 @@
 							onclick={handleManualBoardPassenger}
 							disabled={isAddingManualPassenger || occupancy >= capacity}
 						>
-							{isAddingManualPassenger ? 'Adding…' : '+ Walk-in'}
+							{isAddingManualPassenger ? 'Adding…' : '+ Passenger'}
 						</button>
 						<button
 							type="button"
@@ -863,7 +921,7 @@
 							onclick={handleManualAlightPassenger}
 							disabled={isRemovingManualPassenger || manualPassengers <= 0}
 						>
-							{isRemovingManualPassenger ? 'Removing…' : '- Walk-in'}
+							{isRemovingManualPassenger ? 'Removing…' : '- Passenger'}
 						</button>
 					</div>
 					<p class="manual-meta">Manual passengers: {manualPassengers}</p>
@@ -932,10 +990,10 @@
 								<button
 									type="button"
 									class="alight-btn"
-									onclick={() => handleComplete(b.id)}
+									onclick={() => openDropoffModal(b)}
 									disabled={completingBookingId !== null}
 								>
-									{completingBookingId === b.id ? 'Alighting…' : 'Alight'}
+									{completingBookingId === b.id ? 'Dropping off...' : 'Drop Off'}
 								</button>
 							</li>
 						{/each}
@@ -945,7 +1003,7 @@
 				{#if pendingBookings.length === 0 && onboardBookings.length === 0}
 					<div class="empty">
 						<UsersRound size="48" color="#94a3b8" />
-						<p>No passengers yet</p>
+						<p>No PARA passengers yet</p>
 					</div>
 				{/if}
 			</div>
@@ -987,19 +1045,60 @@
 				{/if}
 			</div>
 
+			<div class="form-group">
+				<p class="form-label">Manual Passengers Onboard</p>
+				<input
+					type="number"
+					class="manual-passenger-input"
+					min="0"
+					max={getVehicleCapacity()}
+					step="1"
+					bind:value={initialManualPassengers}
+					oninput={(event) =>
+						handleInitialManualPassengersInput((event.currentTarget as HTMLInputElement).valueAsNumber)}
+					onblur={() => handleInitialManualPassengersInput(initialManualPassengers)}
+				/>
+				<p class="manual-passenger-hint">
+					These passengers will be counted as manual passengers for this ride.
+				</p>
+			</div>
+
 			{#if errorMsg}<p class="form-error">{errorMsg}</p>{/if}
 
 			<button
 				type="button"
 				class="primary-btn"
 				onclick={handleStartRide}
-				disabled={!selectedRouteId || isStartingRide || routes.length === 0}
+				disabled={!selectedRouteId || isStartingRide || routes.length === 0 || initialManualPassengers < 0 || initialManualPassengers > getVehicleCapacity()}
 			>
 				{isStartingRide ? 'Starting…' : 'Start Ride'}
 			</button>
 			<button type="button" class="ghost-btn" onclick={() => (showStartSheet = false)}
 				>Cancel</button
 			>
+		</div>
+	{/if}
+
+	{#if showDropoffModal}
+		<div
+			class="overlay"
+			role="button"
+			tabindex="0"
+			aria-label="Close drop-off confirmation"
+			onclick={closeDropoffModal}
+			onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && closeDropoffModal()}
+		></div>
+		<div class="action-sheet confirm-sheet">
+			<div class="handle"></div>
+			<h3 class="sheet-title">Drop Off Passenger?</h3>
+			<p class="confirm-copy">
+				Are you sure you want to drop off
+				<strong>{dropoffPassengerName || 'this passenger'}</strong>?
+			</p>
+			<div class="confirm-actions">
+				<button type="button" class="ghost-btn" onclick={closeDropoffModal}>Cancel</button>
+				<button type="button" class="end-btn confirm-end-btn" onclick={submitDropoff}>Yes, Drop Off</button>
+			</div>
 		</div>
 	{/if}
 
@@ -1016,10 +1115,14 @@
 			<div class="handle"></div>
 			<h3 class="sheet-title">End Ride?</h3>
 			<p class="confirm-copy">
-				There {onboardBookings.length === 1 ? 'is' : 'are'} still
-				<strong>{onboardBookings.length}</strong>
-				onboard passenger{onboardBookings.length === 1 ? '' : 's'}. Are you sure you want to
-				continue?
+				{#if onboardBookings.length > 0}
+					There {onboardBookings.length === 1 ? 'is' : 'are'} still
+					<strong>{onboardBookings.length}</strong>
+					onboard passenger{onboardBookings.length === 1 ? '' : 's'}. Are you sure you want to
+					continue?
+				{:else}
+					Are you sure you want to continue?
+				{/if}
 			</p>
 			<p class="confirm-note">Continuing will automatically mark onboard passengers as alighted.</p>
 			<div class="confirm-actions">
@@ -1590,6 +1693,27 @@
 		font-size: 0.8rem;
 		color: #ef4444;
 		margin: 0 0 0.75rem;
+	}
+	.manual-passenger-input {
+		width: 100%;
+		padding: 0.75rem 0.875rem;
+		background: #f8fafc;
+		border: 1.5px solid #e2e8f0;
+		border-radius: 0.625rem;
+		font-family: 'Outfit', sans-serif;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #0f172a;
+	}
+	.manual-passenger-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+	}
+	.manual-passenger-hint {
+		margin: 0.45rem 0 0;
+		font-size: 0.74rem;
+		color: #64748b;
 	}
 
 	.route-list {

@@ -74,6 +74,7 @@
 	let isRequestingBooking = $state(false);
 	let isCancellingBooking = $state(false);
 	let isAlighting = $state(false);
+	let showAlightModal = $state(false);
 	let mapCenter: [number, number] = $state([14.5995, 120.9842]);
 	let liveStateRequestSeq = 0;
 	let bookingMutationEpoch = 0;
@@ -380,6 +381,23 @@
 
 		selectedDriverId = driver.driverId;
 		showDriverSheet = true;
+	}
+
+	function openAlightModal() {
+		if (!activeBooking || activeBooking.status !== 'onboard') return;
+		if (alightingBookingId || isAlighting) return;
+		showAlightModal = true;
+	}
+
+	function closeAlightModal() {
+		if (isAlighting) return;
+		showAlightModal = false;
+	}
+
+	async function submitAlightModal() {
+		if (isAlighting) return;
+		showAlightModal = false;
+		await handleAlightSelf();
 	}
 
 	async function handleAlightSelf() {
@@ -697,7 +715,7 @@
 				{#if activeBooking?.status === 'onboard'}
 					<button
 						class="primary-btn"
-						onclick={handleAlightSelf}
+						onclick={openAlightModal}
 						disabled={alightingBookingId !== null}
 					>
 						{alightingBookingId ? '...' : "PARA!"}
@@ -706,6 +724,30 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if showAlightModal}
+		<div
+			class="overlay"
+			role="button"
+			tabindex="0"
+			aria-label="Close drop-off confirmation"
+			onclick={closeAlightModal}
+			onkeydown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') closeAlightModal();
+			}}
+		></div>
+		<div class="driver-request-sheet confirm-sheet">
+			<div class="sheet-handle"></div>
+			<h3 class="request-driver-name">Drop Off Now?</h3>
+			<p class="confirm-copy">Are you sure that this is the correct location to drop off?</p>
+			<div class="confirm-actions">
+				<button class="ghost-btn" onclick={closeAlightModal} disabled={isAlighting}>Cancel</button>
+				<button class="primary-btn" onclick={submitAlightModal} disabled={isAlighting}>
+					{isAlighting ? 'Dropping off...' : 'Yes, Drop Off'}
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Driver request bottom sheet (overlay) -->
 	{#if showDriverSheet && selectedDriver}
@@ -1197,6 +1239,27 @@
 
 	.request-ride-btn {
 		margin-bottom: 0.75rem;
+	}
+
+	.confirm-sheet {
+		z-index: 21;
+		text-align: center;
+	}
+	.confirm-copy {
+		font-size: 0.9rem;
+		color: #475569;
+		margin: 0 0 1rem;
+	}
+	.confirm-actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.625rem;
+	}
+	.confirm-actions .primary-btn {
+		padding: 0.75rem;
+	}
+	.confirm-actions .ghost-btn {
+		padding: 0.75rem;
 	}
 
 	.full-notice {

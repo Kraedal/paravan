@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { signout } from '$lib/api/auth.remote';
 	import { History, Settings, Map } from '@lucide/svelte';
-	
+	import logo from '$lib/assets/paralogo.png';
 
 	let { children } = $props();
 	let showMenu = $state(false);
@@ -25,7 +25,7 @@
 	>
 		<div class="flex items-center gap-2 text-black drop-shadow-sm">
 	
-			<span class="text-lg font-extrabold tracking-tight">Para</span>
+			<img src={logo} alt="Para Logo" class="h-12 w-12">
 		</div>
 
 		<div class="relative">
