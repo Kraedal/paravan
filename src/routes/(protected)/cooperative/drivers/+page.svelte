@@ -12,6 +12,7 @@
 
 	const drivers = getDrivers();
 	const vehicles = getVehicles();
+	let searchTerm = $state('');
 
 	let isOpen = $state(false);
 	let formEl = $state<HTMLFormElement | null>(null);
@@ -153,6 +154,34 @@
 
 		return vehicles.current.filter((item) => !assignedVehicleIds.has(item.id));
 	});
+
+	const filteredDrivers = $derived.by(() => {
+		if (!drivers.ready) return [];
+
+		const query = searchTerm.trim().toLowerCase();
+		const sortedDrivers = [...drivers.current].sort((a, b) => {
+			const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+			if (nameCompare !== 0) return nameCompare;
+			return a.licenseNumber.localeCompare(b.licenseNumber, undefined, { sensitivity: 'base' });
+		});
+
+		if (!query) return sortedDrivers;
+
+		return sortedDrivers.filter((driverRecord) => {
+			const searchable = [
+				driverRecord.name,
+				driverRecord.user.email,
+				driverRecord.licenseNumber,
+				driverRecord.vehicle?.plateNumber ?? '',
+				driverRecord.vehicle?.model ?? '',
+				driverRecord.isAvailable ? 'available' : 'offline'
+			]
+				.join(' ')
+				.toLowerCase();
+
+			return searchable.includes(query);
+		});
+	});
 	import { formatUtcDate } from '$lib/utils/format-timestamp';
 
 	const formatDate = (value: string | null) => {
@@ -200,6 +229,24 @@
 	</button>
 </div>
 
+<div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+	<div class="w-full sm:max-w-sm">
+		<label for="driver-search" class="sr-only">Search drivers</label>
+		<input
+			id="driver-search"
+			type="search"
+			bind:value={searchTerm}
+			placeholder="Search drivers by name, email, license, or vehicle"
+			class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
+		/>
+	</div>
+	<p class="text-xs text-gray-500">
+		{#if drivers.ready}
+			Showing {filteredDrivers.length} of {drivers.current.length}
+		{/if}
+	</p>
+</div>
+
 <!-- Drivers Table -->
 <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
 	<table class="min-w-full divide-y divide-gray-200 overflow-scroll">
@@ -244,8 +291,14 @@
 						>No drivers yet. Add one to get started.</td
 					>
 				</tr>
+			{:else if drivers.ready && filteredDrivers.length === 0}
+				<tr>
+					<td colspan="6" class="px-6 py-10 text-center text-sm text-gray-400">
+						No drivers match your search.
+					</td>
+				</tr>
 			{:else if drivers.ready}
-				{#each drivers.current as driverRecord (driverRecord.id)}
+				{#each filteredDrivers as driverRecord (driverRecord.id)}
 					<tr class="transition-colors hover:bg-gray-50">
 						<td class="px-6 py-4 text-sm font-medium text-gray-900">
 							<div>{driverRecord.name}</div>

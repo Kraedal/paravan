@@ -10,6 +10,7 @@
 	};
 
 	const vehicles = getVehicles();
+	let searchTerm = $state('');
 	let isOpen = $state(false);
 	let isEditOpen = $state(false);
 	let editingVehicle = $state<VehicleRecord | null>(null);
@@ -28,6 +29,35 @@
 		editingVehicle = vehicleRecord;
 		isEditOpen = true;
 	};
+
+	const filteredVehicles = $derived.by(() => {
+		if (!vehicles.ready) return [];
+
+		const query = searchTerm.trim().toLowerCase();
+		const sortedVehicles = [...vehicles.current].sort((a, b) => {
+			const modelCompare = a.model.localeCompare(b.model, undefined, { sensitivity: 'base' });
+			if (modelCompare !== 0) return modelCompare;
+			return a.plateNumber.localeCompare(b.plateNumber, undefined, { sensitivity: 'base' });
+		});
+
+		if (!query) return sortedVehicles;
+
+		return sortedVehicles.filter((vehicleRecord) => {
+			const assignedDriver = vehicleRecord.drivers[0];
+			const searchable = [
+				vehicleRecord.model,
+				vehicleRecord.plateNumber,
+				String(vehicleRecord.capacity),
+				assignedDriver?.name ?? '',
+				assignedDriver?.user.email ?? '',
+				assignedDriver ? 'assigned' : 'unassigned'
+			]
+				.join(' ')
+				.toLowerCase();
+
+			return searchable.includes(query);
+		});
+	});
 </script>
 
 <!-- Page header -->
@@ -57,6 +87,24 @@
 		</svg>
 		<p class="hidden md:block">Add Vehicle</p>
 	</button>
+</div>
+
+<div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+	<div class="w-full sm:max-w-sm">
+		<label for="vehicle-search" class="sr-only">Search vehicles</label>
+		<input
+			id="vehicle-search"
+			type="search"
+			bind:value={searchTerm}
+			placeholder="Search vehicles by model, plate, driver, or capacity"
+			class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
+		/>
+	</div>
+	<p class="text-xs text-gray-500">
+		{#if vehicles.ready}
+			Showing {filteredVehicles.length} of {vehicles.current.length}
+		{/if}
+	</p>
 </div>
 
 <!-- Drivers Table -->
@@ -100,8 +148,14 @@
 						>No vehicles yet. Add one to get started.</td
 					>
 				</tr>
+			{:else if vehicles.ready && filteredVehicles.length === 0}
+				<tr>
+					<td colspan="4" class="px-6 py-10 text-center text-sm text-gray-400">
+						No vehicles match your search.
+					</td>
+				</tr>
 			{:else if vehicles.ready}
-				{#each vehicles.current as vehicleRecord (vehicleRecord.id)}
+				{#each filteredVehicles as vehicleRecord (vehicleRecord.id)}
 					{@const assignedDriver = vehicleRecord.drivers[0]}
 					{@const deleteVehicleForm = deleteVehicle.for(vehicleRecord.id)}
 					<tr class="transition-colors hover:bg-gray-50">
