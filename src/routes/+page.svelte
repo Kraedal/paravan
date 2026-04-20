@@ -75,7 +75,7 @@
 	<main class="flex flex-1 items-center justify-center">
 		<section class=" max-w-7xl h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-6" >
 			<img src="{logo}" alt="" class="w-64 h-64 object-contain" />
-			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">PARA</p></h1>
+			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">PARAVAN</p></h1>
 			<p class="max-w-xl text-md md:text-lg text-gray-600">No more guessing. No more waiting. <br />Smarter, coordinated van transport across Cagayan.</p>
 			<div class="flex w-full max-w-xs flex-col items-center justify-center gap-4">
 	

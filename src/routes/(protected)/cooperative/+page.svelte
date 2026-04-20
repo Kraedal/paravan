@@ -39,8 +39,7 @@
 			.sort((a, b) => {
 				const order = { high: 0, medium: 1, low: 2 };
 				return (order[a.forecastConfidence ?? 'low'] ?? 2) - (order[b.forecastConfidence ?? 'low'] ?? 2);
-			})
-			.slice(0, 5);
+			});
 	});
 
 	// Loading and error states

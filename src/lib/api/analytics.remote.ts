@@ -30,8 +30,10 @@ const GROQ_TIMEOUT_MS = 8000;
 const AI_MAX_CANDIDATES = 6;
 const AI_MAX_CONTEXT_SNIPPETS = 2;
 const AI_CACHE_TTL_MS = 10 * 60 * 1000;
+const AI_SUMMARY_MAX_SUGGESTIONS = 12;
+const AI_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEMAND_HEATMAP_WINDOW_DAYS = 7;
-const DEMAND_FORECAST_WINDOW_DAYS = 28;
+const DEMAND_FORECAST_WINDOW_DAYS = 7;
 const DEMAND_RAG_WINDOW_DAYS = 90;
 const ANALYTICS_TIME_ZONE = env.APP_TIME_ZONE?.trim() || 'Asia/Manila';
 
@@ -69,7 +71,13 @@ type AiSuggestionCacheEntry = {
 	byKey: Map<string, string>;
 };
 
+type AiSummaryCacheEntry = {
+	expiresAt: number;
+	text: string;
+};
+
 const aiSuggestionCache = new Map<string, AiSuggestionCacheEntry>();
+const aiSummaryCache = new Map<string, AiSummaryCacheEntry>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,6 +88,187 @@ function classifyDemand(fillRatio: number): 'high' | 'normal' | 'low' {
 	if (availableRatio <= DEMAND_THRESHOLDS.high) return 'high';
 	if (availableRatio <= DEMAND_THRESHOLDS.normal) return 'normal';
 	return 'low';
+}
+
+function pickDeterministicIndex(key: string, size: number): number {
+	if (size <= 0) return 0;
+	let hash = 0;
+	for (let i = 0; i < key.length; i += 1) {
+		hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+	}
+	return hash % size;
+}
+
+function buildRuleBasedSuggestion(slot: {
+	routeName: string;
+	day: string;
+	hourSlot: string;
+	forecastedDemandLevel: 'high' | 'normal' | 'low' | null;
+	forecastConfidence: 'low' | 'medium' | 'high' | null;
+}): string | null {
+	if (slot.forecastedDemandLevel !== 'high' && slot.forecastedDemandLevel !== 'low') {
+		return null;
+	}
+
+	const key = `${slot.routeName}|${slot.day}|${slot.hourSlot}|${slot.forecastedDemandLevel}`;
+
+	const highDemandActions = [
+		`High demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Add one extra dispatch for this slot.`,
+		`High demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Reduce headway by 10-15 minutes.`,
+		`High demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Assign a higher-capacity vehicle if available.`,
+		`High demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Stage a standby driver for quick fill-in trips.`,
+		`High demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Shift one low-demand dispatch into this period.`
+	];
+
+	const lowDemandActions = [
+		`Low demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Increase dispatch interval for this slot.`,
+		`Low demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Use a smaller-capacity vehicle where possible.`,
+		`Low demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Consolidate nearby departures to avoid underfilled runs.`,
+		`Low demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Reassign one vehicle to a stronger demand window.`,
+		`Low demand on ${slot.routeName} on ${slot.day}s during ${slot.hourSlot}. Keep one unit on standby instead of fixed dispatch.`
+	];
+
+	const pool = slot.forecastedDemandLevel === 'high' ? highDemandActions : lowDemandActions;
+	const baseSuggestion = pool[pickDeterministicIndex(key, pool.length)];
+
+	if (slot.forecastConfidence === 'low') {
+		return `${baseSuggestion} Confidence is low, so monitor next week before applying permanent changes.`;
+	}
+
+	return baseSuggestion;
+}
+
+function isSuggestionTooGeneric(suggestion: string): boolean {
+	const text = suggestion.trim().toLowerCase();
+	if (!text) return true;
+	if (text.length < 55) return true;
+
+	const overlyGenericPhrases = [
+		'reduce frequency',
+		'increase frequency',
+		'add vehicle',
+		'add dispatch',
+		'deploy additional vehicle'
+	];
+
+	return overlyGenericPhrases.some((phrase) => text === phrase);
+}
+
+function buildFallbackSuggestionsSummary(patterns: DemandSlot[]): string {
+	const actionable = patterns.filter((p) => p.suggestion && p.forecastedDemandLevel);
+	if (!actionable.length) {
+		return 'No actionable suggestion patterns yet. Keep collecting trip data for clearer demand trends.';
+	}
+
+	const high = actionable.filter((p) => p.forecastedDemandLevel === 'high');
+	const low = actionable.filter((p) => p.forecastedDemandLevel === 'low');
+
+	const topHigh = high.slice(0, 2).map((p) => `${p.routeName} (${p.day} ${p.hourSlot})`);
+	const topLow = low.slice(0, 2).map((p) => `${p.routeName} (${p.day} ${p.hourSlot})`);
+
+	const parts: string[] = [];
+	parts.push(
+		`Analyzed ${actionable.length} actionable slots: ${high.length} high-demand and ${low.length} low-demand windows.`
+	);
+	if (topHigh.length > 0) {
+		parts.push(`Prioritize extra capacity around ${topHigh.join(', ')}.`);
+	}
+	if (topLow.length > 0) {
+		parts.push(`Trim or consolidate dispatches around ${topLow.join(', ')}.`);
+	}
+
+	return parts.join(' ');
+}
+
+async function summarizeSuggestionsWithGroq(patterns: DemandSlot[]): Promise<string | null> {
+	const apiKey = env.GROQ_API_KEY;
+	if (!apiKey) return null;
+
+	const actionable = patterns
+		.filter((p) => p.suggestion && p.forecastedDemandLevel)
+		.sort((a, b) => {
+			const demandRank = (d: DemandSlot['forecastedDemandLevel']) =>
+				d === 'high' ? 0 : d === 'low' ? 1 : 2;
+			const confidenceRank = (c: DemandSlot['forecastConfidence']) =>
+				c === 'high' ? 0 : c === 'medium' ? 1 : c === 'low' ? 2 : 3;
+			const dDelta = demandRank(a.forecastedDemandLevel) - demandRank(b.forecastedDemandLevel);
+			if (dDelta !== 0) return dDelta;
+			return confidenceRank(a.forecastConfidence) - confidenceRank(b.forecastConfidence);
+		})
+		.slice(0, AI_SUMMARY_MAX_SUGGESTIONS)
+		.map((p) => ({
+			routeName: p.routeName,
+			day: p.day,
+			hourSlot: p.hourSlot,
+			demand: p.forecastedDemandLevel,
+			confidence: p.forecastConfidence,
+			suggestion: p.suggestion
+		}));
+
+	if (!actionable.length) return null;
+
+	const cacheKey = JSON.stringify(actionable);
+	const now = Date.now();
+	const cached = aiSummaryCache.get(cacheKey);
+	if (cached && cached.expiresAt > now) {
+		return cached.text;
+	}
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(GROQ_API_URL, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${apiKey}`
+			},
+			body: JSON.stringify({
+				model: env.GROQ_MODEL || 'llama-3.1-8b-instant',
+				temperature: 0,
+				messages: [
+					{
+						role: 'system',
+						content:
+							'You are an operations analyst. Produce one concise executive summary in plain text only.'
+					},
+					{
+						role: 'user',
+						content:
+							`Summarize these dispatch suggestions into 2-3 short sentences (max 75 words total). Mention key high-demand and low-demand actions without listing every item. Avoid markdown bullets. Data: ${JSON.stringify(actionable)}`
+					}
+				]
+			}),
+			signal: controller.signal
+		});
+
+		if (!response.ok) return null;
+
+		const data = (await response.json()) as {
+			choices?: Array<{ message?: { content?: string } }>;
+		};
+		const text = data.choices?.[0]?.message?.content?.trim();
+		if (!text) return null;
+
+		const normalized = text.replace(/\s+/g, ' ').slice(0, 500);
+		aiSummaryCache.set(cacheKey, {
+			expiresAt: now + AI_SUMMARY_CACHE_TTL_MS,
+			text: normalized
+		});
+
+		if (aiSummaryCache.size > 50) {
+			for (const [key, value] of aiSummaryCache.entries()) {
+				if (value.expiresAt <= now) aiSummaryCache.delete(key);
+			}
+		}
+
+		return normalized;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 function getNumberPart(parts: Intl.DateTimeFormatPart[], type: 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second'): number {
@@ -426,7 +615,7 @@ async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: R
 			const key = `${pattern.routeName}|${pattern.day}|${pattern.hourSlot}`;
 			const aiText = byKey.get(key);
 			if (aiText) {
-				if (isSuggestionConsistent(pattern, aiText)) {
+				if (isSuggestionConsistent(pattern, aiText) && !isSuggestionTooGeneric(aiText)) {
 					pattern.suggestion = aiText;
 					appliedCount += 1;
 				} else {
@@ -452,9 +641,9 @@ async function enhanceSuggestionsWithGroq(patterns: DemandSlot[], ragSnippets: R
  * weeklyFillRatios: index 0 = oldest week, last index = most recent week
  */
 function weightedMovingAverage(weeklyFillRatios: (number | null)[]): number | null {
-	// Need at least 2 weeks of data to produce a meaningful forecast
+	// Allow single-week fallback so weekly-only datasets can still produce forecasts.
 	const available = weeklyFillRatios.filter((v) => v !== null) as number[];
-	if (available.length < 2) return null;
+	if (available.length < 1) return null;
 
 	// Align weights to available data — always use the tail of WMA_WEIGHTS
 	const alignedWeights = WMA_WEIGHTS.slice(WMA_WEIGHTS.length - available.length);
@@ -519,8 +708,8 @@ export const getDemandPatterns = query(async () => {
 	const now = new Date();
 	const sevenDaysAgo = new Date(now);
 	sevenDaysAgo.setDate(sevenDaysAgo.getDate() - DEMAND_HEATMAP_WINDOW_DAYS);
-	const twentyEightDaysAgo = new Date(now);
-	twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - DEMAND_FORECAST_WINDOW_DAYS);
+	const forecastWindowStart = new Date(now);
+	forecastWindowStart.setDate(forecastWindowStart.getDate() - DEMAND_FORECAST_WINDOW_DAYS);
 	const ninetyDaysAgo = new Date(now);
 	ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - DEMAND_RAG_WINDOW_DAYS);
 
@@ -545,7 +734,7 @@ export const getDemandPatterns = query(async () => {
 			where: and(
 				inArray(ride.routeId, cooperativeRouteIds),
 				eq(ride.status, 'completed'),
-				gte(ride.createdAt, twentyEightDaysAgo)
+				gte(ride.createdAt, forecastWindowStart)
 			),
 			with: {
 				vehicle: true,
@@ -670,18 +859,19 @@ export const getDemandPatterns = query(async () => {
 		const forecastConfidence =
 			weeksWithData >= 4 ? 'high' :
 			weeksWithData >= 3 ? 'medium' :
-			weeksWithData >= 2 ? 'low' : null;
+			weeksWithData >= 1 ? 'low' : null;
 
 		// ---------------------------------------------------------------------------
 		// Step 3 — PRESCRIPTIVE: Generate suggestion based on forecasted demand
 		// ---------------------------------------------------------------------------
 
-		let suggestion: string | null = null;
-		if (forecastedDemandLevel === 'high') {
-			suggestion = `High demand on ${routeName} on ${day}s during ${hourSlot}. Consider deploying an additional vehicle.`;
-		} else if (forecastedDemandLevel === 'low') {
-			suggestion = `Low demand on ${routeName} on ${day}s during ${hourSlot}. Consider reducing dispatch frequency.`;
-		}
+		const suggestion = buildRuleBasedSuggestion({
+			routeName,
+			day,
+			hourSlot,
+			forecastedDemandLevel,
+			forecastConfidence
+		});
 
 		patterns.push({
 			routeName,
@@ -703,6 +893,8 @@ export const getDemandPatterns = query(async () => {
 
 	// Optional AI refinement of prescriptive suggestions.
 	const aiAssisted = await enhanceSuggestionsWithGroq(patterns, ragSnippets);
+	const suggestionsSummary =
+		(await summarizeSuggestionsWithGroq(patterns)) ?? buildFallbackSuggestionsSummary(patterns);
 
 	// ---------------------------------------------------------------------------
 	// Summary
@@ -717,7 +909,7 @@ export const getDemandPatterns = query(async () => {
 		ridesAnalyzed: descriptiveSlotFillRatios === weekSlotFillRatios ? weekRides.length : recentRides.length
 	};
 
-	return { patterns, summary, aiAssisted };
+	return { patterns, summary, aiAssisted, suggestionsSummary };
 });
 
 // ---------------------------------------------------------------------------
