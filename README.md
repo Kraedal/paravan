@@ -1,8 +1,8 @@
-# PARA
+# PARAVAN - Public Transport Van Monitoring and Analytics Platform
 
 ## Abstract
 
-PARA is a web-based van monitoring and descriptive analytics system designed for public transport cooperatives. The platform consolidates operational trip data into actionable views of route performance, vehicle utilization, and demand behavior to support evidence-based dispatch and planning decisions. By combining monitoring workflows with analytics-driven insights, PARA aims to improve transport efficiency, increase service reliability, and enhance passenger experience.
+PARAVAN is a web-based van monitoring and descriptive analytics system designed for public transport cooperatives. The platform consolidates operational trip data into actionable views of route performance, vehicle utilization, and demand behavior to support evidence-based dispatch and planning decisions. By combining monitoring workflows with analytics-driven insights, PARA aims to improve transport efficiency, increase service reliability, and enhance passenger experience.
 
 ## Tech Stack
 

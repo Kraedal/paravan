@@ -20,7 +20,7 @@
 			</div>
 		</div>
 
-		<h1 class="mb-1 text-center text-2xl font-semibold">Join PARA</h1>
+		<h1 class="mb-1 text-center text-2xl font-semibold">Join PARAVAN</h1>
 		<p class="mb-6 text-center text-sm text-gray-500">Register your cooperative</p>
 
 		<form {...cooperativeSignUp} class="space-y-4">

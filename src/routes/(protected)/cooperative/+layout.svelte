@@ -49,7 +49,7 @@
 		<div class="flex h-16 items-center justify-between">
 			<div class="flex items-center gap-4">
 			<img src={logo} alt="Para logo" class="h-8 w-8">
-			<h1 class="text-2xl font-bold text-blue-900">PARA</h1>
+			<h1 class="text-2xl font-bold text-blue-900">PARAVAN</h1>
 			</div>
 			<button
 				type="button"

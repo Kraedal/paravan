@@ -1,7 +1,7 @@
 {
-	"name": "Para",
-	"short_name": "Para",
-	"description": "Para ride coordination platform",
+	"name": "Paravan",
+	"short_name": "Paravan",
+	"description": "Paravan ride coordination platform",
 	"start_url": "/auth/login",
 	"scope": "/",
 	"display": "standalone",
