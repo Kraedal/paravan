@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { UserRound, Van, Route, Wallet  } from "@lucide/svelte";
+	import { UserRound, Van, Route } from "@lucide/svelte";
 	import type { Component } from "svelte";
 	interface KPI {
 		label: string;
@@ -39,12 +39,12 @@
 				icon: Route,
 				accent: '#f59e0b'
 			},
-			{
-				label: 'Earnings',
-				value: "TBD",
-				icon: Wallet,
-				accent: '#22c55e'
-			}
+			// {
+			// 	label: 'Earnings',
+			// 	value: "TBD",
+			// 	icon: Wallet,
+			// 	accent: '#22c55e'
+			// }
 		];
 	});
 </script>
