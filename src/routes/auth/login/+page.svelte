@@ -22,11 +22,11 @@
 		<img src={stop} alt="Para logo" class="w-lg h-full"/>
 	</div>
 	<div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 shadow">
-		<div class="mb-6 flex justify-center">
-			<div class="flex h-12 w-12 items-center justify-center rounded-xl">
-				<img src={logo} alt="Para logo" class="h-12 w-12" />
-			</div>
-		</div>
+<div class="mb-6 flex justify-center">
+	<div class="flex h-20 w-20 items-center justify-center rounded-xl">
+		<img src={logo} alt="Para logo" class="h-20 w-20" />
+	</div>
+</div>
 
 		<h1 class="mb-1 text-center text-2xl font-semibold">Welcome back</h1>
 		<p class="mb-6 text-center text-sm text-gray-500">Sign in to your account</p>
