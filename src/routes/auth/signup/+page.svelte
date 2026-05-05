@@ -4,6 +4,7 @@
 	import { passengerSignUp } from '$lib/api/auth.remote';
 	import logo from '$lib/assets/paralogo.png';
 	import stop from '$lib/assets/paraa.svg'
+	import titleLogo from '$lib/assets/para-title-logo.png';
 </script>
 
 <div class="flex min-h-[calc(100vh-4rem)] items-center justify-around bg-[#f7fcfe] px-4">
@@ -11,14 +12,17 @@
 		<img src={stop} alt="Para logo" class="w-lg h-full" />
 	</div>
 	<div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 shadow">
-		<div class="mb-6 flex justify-center">
-			<div class="flex h-12 w-12 items-center justify-center rounded-xl">
-				<img src={logo} alt="Para logo" class="h-12 w-12" />
-			</div>
-		</div>
+<div class="mb-4 flex justify-center">
+	<div class="flex h-20 w-20 items-center justify-center rounded-xl">
+		<img src={logo} alt="Para logo" class="h-20 w-20" />
+	</div>
+</div>
 
-		<h1 class="mb-1 text-center text-2xl font-semibold">Join Paravan</h1>
-		<p class="mb-6 text-center text-sm text-gray-500">Create your passenger account</p>
+<h1 class="text-center text-3xl font-semibold flex items-center justify-center gap-2 ml-8 -mt-2 mb-0">
+	Join 
+	<img src={titleLogo} alt="Para logo" class="h-18 w-auto -ml-4" />
+</h1>
+<p class="text-center text-sm text-gray-500 -mt-3 mb-4">Create your passenger account</p>
 
 		<form {...passengerSignUp} class="space-y-4">
 			<div>

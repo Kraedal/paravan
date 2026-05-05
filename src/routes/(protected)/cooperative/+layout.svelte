@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import type { Pathname } from '$app/types';
-	import logo from '$lib/assets/paralogo.png';
+	import titleLogo from '$lib/assets/para-title-logo.png';
 
 	let { children } = $props();
 
@@ -47,10 +47,9 @@
 <div class="z-1000 border-b border-gray-200 bg-white shadow-sm">
 	<div class="px-4 sm:px-6 md:mx-auto">
 		<div class="flex h-16 items-center justify-between">
-			<div class="flex items-center gap-4">
-			<img src={logo} alt="Para logo" class="h-8 w-8">
-			<h1 class="text-2xl font-bold text-blue-900">PARAVAN</h1>
-			</div>
+<div class="flex items-center gap-4">
+	<img src={titleLogo} alt="Para logo" class="h-14 w-auto">
+</div>
 			<button
 				type="button"
 				onclick={() => (isOpen = true)}

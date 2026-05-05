@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import logo from '$lib/assets/paralogo.png';
-
+	import titleLogo from '$lib/assets/para-title-logo.png';
 
 	type BeforeInstallPromptEvent = Event & {
 		prompt: () => Promise<void>;
@@ -73,11 +73,14 @@
 	
 
 	<main class="flex flex-1 items-center justify-center">
-		<section class=" max-w-7xl h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-6" >
-			<img src="{logo}" alt="" class="w-64 h-64 object-contain" />
-			<h1 class="text-4xl font-bold md:text-5xl ">Welcome to <p class="inline-block text-blue-900">PARAVAN</p></h1>
-			<p class="max-w-xl text-md md:text-lg text-gray-600">No more guessing. No more waiting. <br />Smarter, coordinated van transport across Cagayan.</p>
-			<div class="flex w-full max-w-xs flex-col items-center justify-center gap-4">
+<section class="max-w-7xl w-full h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-1">
+	<img src="{logo}" alt="" class="w-64 h-64 object-contain -mb-12" />
+<h1 class="text-4xl font-bold md:text-5xl flex items-center justify-center gap-0 -mt-2 pt-2 -mb-3 ml-8">
+	Welcome to 
+	<img src="{titleLogo}" alt="PARA" class="h-34 w-auto object-contain -mb-1 -ml-5" />
+</h1>
+	<p class="max-w-xl text-md md:text-lg text-gray-600 -mt-2">No more guessing. No more waiting. <br /><span class="text-blue-900 font-medium">Smarter, coordinated van transport across Cagayan.</span></p>
+	<div class="flex w-full max-w-xs flex-col items-center justify-center gap-4 mt-4">
 	
 				<button
 					onclick={() => goto(resolve('/auth/signup'))}
@@ -184,7 +187,7 @@
 
 	<footer class="border-t border-gray-100">
 		<div class="mx-auto max-w-7xl px-6 py-4 text-center text-sm text-gray-500">
-			© 2026 Paravan. Modern van transportation services.
+			© 2024 PARA. All rights reserved.
 		</div>
 	</footer>
 </div>
