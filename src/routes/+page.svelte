@@ -73,11 +73,11 @@
 	
 
 	<main class="flex flex-1 items-center justify-center">
-<section class="max-w-7xl w-full h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-1">
+<section class="max-w-7xl w-full h-auto md:h-[calc(100vh-8rem)] flex flex-col items-center justify-center text-center gap-1 py-8 md:py-0">
 	<img src="{logo}" alt="" class="w-64 h-64 object-contain -mb-12" />
-<h1 class="text-3xl font-bold md:text-5xl flex items-center justify-center gap-0 -mt-2 pt-6 -mb-3 ml-8 pb-2">
+<h1 class="text-2xl font-bold md:text-5xl flex items-center justify-center gap-0 -mt-2 pt-6 -mb-3 ml-8 pb-2">
 	Welcome to 
-	<img src="{titleLogo}" alt="PARA" class="h-30 w-auto object-contain -mb-1 -ml-5" />
+	<img src="{titleLogo}" alt="PARA" class="h-22 w-auto object-contain -mb-0 -ml-2" />
 </h1>
 	<p class="max-w-xl text-md md:text-lg text-gray-600 -mt-4">No more guessing. No more waiting. <br /><span class="text-blue-900 font-medium">Smarter, coordinated van transport across Cagayan.</span></p>
 	<div class="flex w-full max-w-xs flex-col items-center justify-center gap-4 mt-8">
